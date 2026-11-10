@@ -433,9 +433,8 @@ test('a row shows the last turn summary, what is asked and the pull request', FR
     await ui.find({ type: 'Text', text: /^⚠️ The reviewer's answer on the open question$/ }),
   ).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Récap QA publié$/ })).toBeTruthy()
-  // A plain summary hangs behind an arrow.
-  expect(await ui.find({ type: 'Box', key: 'summary-done' } as never)).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: '▸\u00a0' })).toBeTruthy()
+  // A plain summary reads in italics.
+  expect((await ui.find({ type: 'Text', text: /^Récap QA publié$/ }))?.props.italic).toBe(true)
   await ui.unmount()
 })
 
@@ -1139,7 +1138,9 @@ test('a row shows what git still holds of the branch it committed on', FR, async
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'docket', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await clock.advance(1)
+  // Other conversations are asked about on ↻ only.
+  expect(runs.length).toBe(0)
+  await ui.press({ key: 'refresh' })
   // Each sign stands out from the age: its mark, count and words in plain text.
   expect((await ui.find({ type: 'Text', text: '↑2 non poussé' }))?.props.dimColor).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
@@ -1148,44 +1149,53 @@ test('a row shows what git still holds of the branch it committed on', FR, async
   expect(await ui.find({ type: 'Text', text: 'my-app · PR #9 mergée' })).toBeTruthy()
   expect(store.get('git')).toMatchObject({ states: expect.any(Object) })
 
-  // Drawn again within two minutes, the board reads git's answer from the store.
+  // Drawn again, the board reads git's answers from the store: git is not asked.
   const asked = runs.length
   await ui.unmount()
+  await clock.advance(60_000)
   const again = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await clock.advance(1)
   expect(runs.length).toBe(asked)
+  expect(await again.find({ type: 'Text', text: '↑2 non poussé' })).toBeTruthy()
   await again.unmount()
 })
 
-test('a git command by Claude or the refresh button asks git again', FR, async ($, on) => {
-  const store = mockEngine(
+test('coming into a conversation and its git commands ask git about its branches only', FR, async ($, on) => {
+  mockEngine(
     on,
-    { filters: { status: 'aucun', flags: {} }, git: { at: 3_600_000, states: {} } },
-    { 'local_work.json': desktopRecord('work', 'Travail', false, { writtenBranches: ['/repo\u0000feature'] }) },
+    { filters: { status: 'aucun', flags: {} } },
+    {
+      'local_here.json': desktopRecord('here', 'Ici', false, { writtenBranches: ['/repo\u0000mine'] }),
+      'local_other.json': desktopRecord('other', 'Autre', false, { writtenBranches: ['/repo\u0000theirs'] }),
+    },
   )
-  let asked = 0
-  on('process.run', () => {
-    asked += 1
+  const asked: string[] = []
+  on('process.run', (_, e) => {
+    asked.push(e.argv.slice(3).join(' '))
 
     return { value: { exitCode: 1, stdout: '', stderr: '' } }
   })
   on('tool.call', () => ({ result: {} }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  // A command that changes no branch keeps the shared answer.
-  await $.tool.call({ tool: 'Bash', command: 'git status' })
-  expect(store.get('git')).toMatchObject({ at: 3_600_000 })
-  // A push drops it.
-  await $.tool.call({ tool: 'Bash', command: 'cd repo && git push origin feature' })
-  expect(store.get('git')).toMatchObject({ at: 0 })
-
-  // The refresh button asks git even within the two minutes.
-  await $.command.run({ command: 'docket', args: '' })
-  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // Coming in draws the band: git is asked about this conversation's branch alone.
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   await clock.advance(1)
-  const before = asked
-  expect(before).toBeGreaterThan(0)
-  await ui.press({ key: 'refresh' })
-  expect(asked).toBeGreaterThan(before)
-  await ui.unmount()
+  expect(asked.some(args => args.includes('refs/heads/mine'))).toBe(true)
+  expect(asked.some(args => args.includes('refs/heads/theirs'))).toBe(false)
+
+  // Drawn again soon after, the band does not ask again.
+  const count = asked.length
+  await band.unmount()
+  const again = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await clock.advance(1)
+  expect(asked.length).toBe(count)
+  await again.unmount()
+
+  // A command that changes no branch asks nothing; a push asks at once.
+  await $.tool.call({ tool: 'Bash', command: 'git status' })
+  expect(asked.length).toBe(count)
+  await $.tool.call({ tool: 'Bash', command: 'cd repo && git push origin mine' })
+  expect(asked.length).toBeGreaterThan(count)
+  expect(asked.some(args => args.includes('refs/heads/theirs'))).toBe(false)
 })

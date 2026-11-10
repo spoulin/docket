@@ -309,7 +309,7 @@ export const register: Register = (on, options) => {
     const ran = await next(e)
     const command = (e as { command?: unknown }).command
     if (typeof command === 'string' && GIT_CHANGE.test(command)) {
-      await forgetGit($).catch(() => undefined)
+      await refreshOwnGit($, true).catch(() => undefined)
     }
 
     return ran
@@ -411,6 +411,8 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // Coming into the conversation draws its band: git is asked about its branches.
+    void refreshOwnGit($).catch(() => undefined)
     const entry = await read($, current)
     if (e.props.hasSurvey) {
       return next(e)
@@ -521,7 +523,6 @@ export const register: Register = (on, options) => {
       // Not awaited: the board draws now, and again once the data is read.
       void refreshBoard($).catch(() => undefined)
     }
-    void refreshGitIfStale($).catch(() => undefined)
     const elements = $.ui.resolve(e)
     const { Box, Button, Markdown, Text } = elements
     // Not every surface draws a Select: those get buttons instead.
@@ -634,37 +635,35 @@ export const register: Register = (on, options) => {
                 </Text>
               </Box>
             </Box>
-            <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={2}>
-              <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1}>
-                {findTicket(row.title) !== undefined && (
-                  <Markdown
-                    key={`ticket-${row.key}`}
-                    dimColor
-                    text={`[${escapeMarkdown(`${findTicket(row.title)?.label} ↗`)}](${findTicket(row.title)?.url})`}
-                    pressableLinks={[findTicket(row.title)?.url ?? '']}
-                    onLinkPress={() => openTicket($, findTicket(row.title))}
-                  />
-                )}
-                <Text dimColor size="footnote" wrap="truncate-end">
-                  {row.key === hereId ? `${t.here} · ${describe(row)}` : describe(row)}
-                </Text>
-              </Box>
-              {describeGit(row, git).length > 0 && (
-                <Box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
-                  {describeGit(row, git).map((sign, index) => (
-                    // What git still holds stands out: mark, count and words.
-                    <Box key={`git-${row.key}-${sign.word}`} flexDirection="row" gap={1}>
-                      {index > 0 && (
-                        <Text dimColor size="caption">
-                          ·
-                        </Text>
-                      )}
-                      <Text size="caption">{`${sign.mark} ${sign.word}`}</Text>
-                    </Box>
-                  ))}
-                </Box>
+            <Box flexDirection="row" alignItems="center" gap={1}>
+              {findTicket(row.title) !== undefined && (
+                <Markdown
+                  key={`ticket-${row.key}`}
+                  dimColor
+                  text={`[${escapeMarkdown(`${findTicket(row.title)?.label} ↗`)}](${findTicket(row.title)?.url})`}
+                  pressableLinks={[findTicket(row.title)?.url ?? '']}
+                  onLinkPress={() => openTicket($, findTicket(row.title))}
+                />
               )}
+              <Text dimColor size="footnote" wrap="truncate-end">
+                {row.key === hereId ? `${t.here} · ${describe(row)}` : describe(row)}
+              </Text>
             </Box>
+            {describeGit(row, git).length > 0 && (
+              // What git still holds, on a line of its own: mark, count and words.
+              <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
+                {describeGit(row, git).map((sign, index) => (
+                  <Box key={`git-${row.key}-${sign.word}`} flexDirection="row" gap={1}>
+                    {index > 0 && (
+                      <Text dimColor size="caption">
+                        ·
+                      </Text>
+                    )}
+                    <Text size="caption">{`${sign.mark} ${sign.word}`}</Text>
+                  </Box>
+                ))}
+              </Box>
+            )}
           </Box>
           {!row.isDesktop && row.key !== hereId && (
             <Button
@@ -681,15 +680,10 @@ export const register: Register = (on, options) => {
           </Text>
         )}
         {row.summary !== undefined && row.attention === undefined && (
-          // The last turn's summary, behind a triangle.
-          <Box key={`summary-${row.key}`} flexDirection="row">
-            <Text size="footnote" weight="bold">
-              {'▸\u00a0'}
-            </Text>
-            <Text size="footnote" dimColor wrap="truncate-end">
-              {row.summary}
-            </Text>
-          </Box>
+          // The last turn's summary, in italics: what the conversation said, not a fact of it.
+          <Text key={`summary-${row.key}`} size="footnote" dimColor italic wrap="wrap">
+            {row.summary}
+          </Text>
         )}
         {row.summary !== undefined && row.attention !== undefined && (
           <Text
@@ -887,8 +881,11 @@ export const register: Register = (on, options) => {
               label={t.refresh}
               onPress={async () => {
                 await refreshAll($)
-                await forgetGit($)
-                await refreshGitIfStale($)
+                const keys = new Set([...shown, ...yourTurn].map(row => row.hostId))
+                await refreshGitFor(
+                  $,
+                  (await read($, desktop)).filter(session => keys.has(session.hostId)),
+                )
               }}
             />
           </Box>
@@ -1106,7 +1103,6 @@ async function refreshBoard($: EngineInterface): Promise<void> {
   const isShown = (await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)
   if (isShown) {
     await update($, tick, value => value + 1)
-    void refreshGitIfStale($).catch(() => undefined)
   }
 }
 
@@ -1163,55 +1159,66 @@ async function refreshAll($: EngineInterface): Promise<void> {
   if (JSON.stringify(await read($, desktop)) !== JSON.stringify(sessions)) {
     await update($, desktop, () => sessions)
   }
+  await loadGit($)
 }
 
-// Git is asked only while a board is shown, and its answer is shared by every
-// conversation through the store for two minutes: one asks, the others read.
-const GIT_TTL_MS = 120_000
+// Git is asked about the conversation one comes into, after Claude's git commands
+// there, and about every row shown when ↻ is pressed. Answers are kept per branch
+// in the store, shared by every conversation; other rows show the last one known.
 const GIT_KEY = 'git'
+// Coming into a conversation draws its band; within this long it is not asked again.
+const GIT_ENTER_MS = 30_000
+let lastOwnGitAt = Number.NEGATIVE_INFINITY
 let isGitRunning = false
 // The git commands that change a branch: what was committed, pushed or merged.
 const GIT_CHANGE =
   /\bgit\b[^\n;&|]*\s(commit|push|pull|merge|rebase|checkout|switch|reset|cherry-pick|revert|am|stash)\b/
 
-// Drops git's shared answer, so the next board shown asks again.
-async function forgetGit($: EngineInterface): Promise<void> {
+async function readStoredGit($: EngineInterface): Promise<Record<string, GitState>> {
   const stored = await $.store.get(GIT_KEY)
   const states =
     typeof stored === 'object' && stored !== null ? (stored as { states?: unknown }).states : undefined
-  await $.store.set(GIT_KEY, { at: 0, states: states ?? {} })
+
+  return typeof states === 'object' && states !== null ? (states as Record<string, GitState>) : {}
 }
 
-async function refreshGitIfStale($: EngineInterface): Promise<void> {
-  if (isGitRunning) {
-    return
+// Shows what other conversations learned of git: no git command runs.
+async function loadGit($: EngineInterface): Promise<void> {
+  const states = await readStoredGit($)
+  if (JSON.stringify(await read($, gitStates)) !== JSON.stringify(states)) {
+    await update($, gitStates, () => states)
   }
-  const now = await $.clock.now()
-  const stored = await $.store.get(GIT_KEY)
-  const kept =
-    typeof stored === 'object' && stored !== null ? (stored as { at?: unknown; states?: unknown }) : {}
-  const keptStates =
-    typeof kept.states === 'object' && kept.states !== null
-      ? (kept.states as Record<string, GitState>)
-      : {}
-  if (typeof kept.at === 'number' && now - kept.at < GIT_TTL_MS) {
-    if (JSON.stringify(await read($, gitStates)) !== JSON.stringify(keptStates)) {
-      await update($, gitStates, () => keptStates)
-    }
+}
 
+// Asks git about the given sessions' branches, and adds the answers to the store.
+async function refreshGitFor($: EngineInterface, sessions: readonly DesktopSession[]): Promise<void> {
+  if (isGitRunning) {
     return
   }
   isGitRunning = true
   try {
-    // Claimed first, so another conversation drawing its board now does not ask too.
-    await $.store.set(GIT_KEY, { at: now, states: keptStates })
-    const states = await readGitStates($, await read($, desktop))
-    await $.store.set(GIT_KEY, { at: await $.clock.now(), states })
+    const fresh = await readGitStates($, sessions)
+    const states = { ...(await readStoredGit($)), ...fresh }
+    await $.store.set(GIT_KEY, { states })
     if (JSON.stringify(await read($, gitStates)) !== JSON.stringify(states)) {
       await update($, gitStates, () => states)
     }
   } finally {
     isGitRunning = false
+  }
+}
+
+// The conversation one is in: asked when one comes into it, at most every 30 seconds.
+async function refreshOwnGit($: EngineInterface, isForced = false): Promise<void> {
+  const now = await $.clock.now()
+  if (!isForced && now - lastOwnGitAt < GIT_ENTER_MS) {
+    return
+  }
+  lastOwnGitAt = now
+  const hostId = await findHostId($)
+  const own = (await read($, desktop)).filter(session => session.hostId === hostId)
+  if (own.length > 0) {
+    await refreshGitFor($, own)
   }
 }
 

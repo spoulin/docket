@@ -9,7 +9,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - The board groups every conversation by status, with a filter on status, one per flag, and a period (1 hour, today, 7 days…).
 - The status filter checks one group or several (in progress + waiting); one stays checked. "No status" is unchecked at first.
 - A search field keeps the conversations whose title, folder, ticket or note holds every word typed. While it holds text, the filters and the ↻ button hide and stop filtering; they come back as they were once it is cleared.
-- In the desktop app, each row shows the sidebar title, the folder, the pull request and the flags, the note, the age, and the last turn summary.
+- In the desktop app, each row is a card: the sidebar title with its age on the right; the folder, pull request and flags; the git signs on a line of their own; then, across the card, the note and the last turn summary in italics.
 - A click on a title opens that conversation.
 - Each conversation gets a small glyph, colored by project, to spot it at a glance.
 - Titles that name a ticket get a link to it, with rules you set.
@@ -17,8 +17,8 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - An orange frame heads the board when something waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
 - A short note per conversation says why it waits or what comes next.
 - Each row tells what git still holds of the branches the conversation committed on: `✎ uncommitted`, `↑2 unpushed`, `⑂ not merged`.
-  Git is asked only while a board is shown, at most every two minutes, and every conversation shares the answer.
-  It is asked again at once after Claude runs a git command that changes a branch (commit, push, merge…), and when you press ↻.
+  Git is asked about a conversation's branches when you come into it, and again right after Claude runs a git command there that changes a branch (commit, push, merge…).
+  ↻ asks about every row shown. Other rows show what was last learned; every conversation shares the answers.
   Untracked files and merge commits are left out, and a squash-merged branch without a pull request reads as not merged.
 
 > [!WARNING]
