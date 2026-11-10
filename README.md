@@ -1,4 +1,4 @@
-# docket
+# 🏷️ docket
 
 A [Claude Code](https://claude.com/claude-code) mod that keeps a docket of your conversations.
 Each conversation gets a status and two flags, and a board lists all of them.

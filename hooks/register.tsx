@@ -28,7 +28,7 @@ const TEXTS = {
     saveFailed: 'The conversation status could not be saved.',
     status: 'Status',
     board: 'Board',
-    paneTitle: 'Statuses',
+    paneTitle: '🏷️ Statuses',
     statuses: [
       { id: 'en-cours', label: 'In progress', aliases: ['in-progress', 'progress', 'encours', 'cours'] },
       { id: 'en-attente', label: 'Waiting', aliases: ['waiting', 'attente'] },
@@ -72,7 +72,7 @@ const TEXTS = {
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     status: 'Statut',
     board: 'Tableau',
-    paneTitle: 'Statuts',
+    paneTitle: '🏷️ Statuts',
     statuses: [
       { id: 'en-cours', label: 'En cours', aliases: ['in-progress', 'progress', 'encours', 'cours'] },
       { id: 'en-attente', label: 'En attente', aliases: ['waiting', 'attente'] },
