@@ -18,6 +18,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - A short note per conversation says why it waits or what comes next.
 - Each row tells what git still holds of the branches the conversation committed on: `✎ uncommitted`, `↑2 unpushed`, `⑂ not merged`.
   Git is asked only while a board is shown, at most every two minutes, and every conversation shares the answer.
+  It is asked again at once after Claude runs a git command that changes a branch (commit, push, merge…), and when you press ↻.
   Untracked files are left out, and a squash-merged branch without a pull request reads as not merged.
 
 > [!WARNING]

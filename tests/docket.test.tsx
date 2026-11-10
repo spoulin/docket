@@ -1156,3 +1156,36 @@ test('a row shows what git still holds of the branch it committed on', FR, async
   expect(runs.length).toBe(asked)
   await again.unmount()
 })
+
+test('a git command by Claude or the refresh button asks git again', FR, async ($, on) => {
+  const store = mockEngine(
+    on,
+    { filters: { status: 'aucun', flags: {} }, git: { at: 3_600_000, states: {} } },
+    { 'local_work.json': desktopRecord('work', 'Travail', false, { writtenBranches: ['/repo\u0000feature'] }) },
+  )
+  let asked = 0
+  on('process.run', () => {
+    asked += 1
+
+    return { value: { exitCode: 1, stdout: '', stderr: '' } }
+  })
+  on('tool.call', () => ({ result: {} }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  // A command that changes no branch keeps the shared answer.
+  await $.tool.call({ tool: 'Bash', command: 'git status' })
+  expect(store.get('git')).toMatchObject({ at: 3_600_000 })
+  // A push drops it.
+  await $.tool.call({ tool: 'Bash', command: 'cd repo && git push origin feature' })
+  expect(store.get('git')).toMatchObject({ at: 0 })
+
+  // The refresh button asks git even within the two minutes.
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await clock.advance(1)
+  const before = asked
+  expect(before).toBeGreaterThan(0)
+  await ui.press({ key: 'refresh' })
+  expect(asked).toBeGreaterThan(before)
+  await ui.unmount()
+})

@@ -303,6 +303,18 @@ export const register: Register = (on, options) => {
     return started
   })
 
+  // A git command Claude ran may change what the board says of a branch: the shared
+  // answer is dropped, and the next board shown asks git again.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const ran = await next(e)
+    const command = (e as { command?: unknown }).command
+    if (typeof command === 'string' && GIT_CHANGE.test(command)) {
+      await forgetGit($).catch(() => undefined)
+    }
+
+    return ran
+  })
+
   // The desktop app connecting to the conversation, maybe on coming back to it.
   on('session.attach', async ($, e, next) => {
     const attached = await next(e)
@@ -854,7 +866,15 @@ export const register: Register = (on, options) => {
             {separator('rule-refresh-line')}
           </Box>
           <Box key="refresh-row" flexDirection="row" justifyContent="flex-end">
-            <Button key="refresh" label={t.refresh} onPress={() => refreshAll($)} />
+            <Button
+              key="refresh"
+              label={t.refresh}
+              onPress={async () => {
+                await refreshAll($)
+                await forgetGit($)
+                await refreshGitIfStale($)
+              }}
+            />
           </Box>
             </Box>
           )}
@@ -1134,6 +1154,17 @@ async function refreshAll($: EngineInterface): Promise<void> {
 const GIT_TTL_MS = 120_000
 const GIT_KEY = 'git'
 let isGitRunning = false
+// The git commands that change a branch: what was committed, pushed or merged.
+const GIT_CHANGE =
+  /\bgit\b[^\n;&|]*\s(commit|push|pull|merge|rebase|checkout|switch|reset|cherry-pick|revert|am|stash)\b/
+
+// Drops git's shared answer, so the next board shown asks again.
+async function forgetGit($: EngineInterface): Promise<void> {
+  const stored = await $.store.get(GIT_KEY)
+  const states =
+    typeof stored === 'object' && stored !== null ? (stored as { states?: unknown }).states : undefined
+  await $.store.set(GIT_KEY, { at: 0, states: states ?? {} })
+}
 
 async function refreshGitIfStale($: EngineInterface): Promise<void> {
   if (isGitRunning) {
