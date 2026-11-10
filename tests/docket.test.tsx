@@ -1120,8 +1120,8 @@ test('a row shows what git still holds of the branch it committed on', FR, async
     const answers: Record<string, string> = {
       'rev-parse --abbrev-ref HEAD': 'feature',
       'status --porcelain --untracked-files=no': ' M file.ts',
-      'rev-list --count refs/heads/feature --not --remotes': '2',
-      'rev-list --count refs/heads/old --not --remotes': '0',
+      'rev-list --count --no-merges refs/heads/feature --not --remotes': '2',
+      'rev-list --count --no-merges refs/heads/old --not --remotes': '0',
       'symbolic-ref --short refs/remotes/origin/HEAD': 'origin/main',
       'rev-parse --verify --quiet refs/heads/feature': 'abc',
     }

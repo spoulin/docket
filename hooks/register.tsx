@@ -596,96 +596,112 @@ export const register: Register = (on, options) => {
     ]
     const pickStatus = (value: string) => saveStatusFilter($, pickStatusFilter(selected, value))
     const renderRow = (row: Row) => (
-                <Box key={`row-${row.key}`} flexDirection="row" alignItems="flex-start" gap={2}>
-                  {Svg === undefined ? (
-                    <Text color={glyphColor(row.hostId ?? row.key, findProject(row))}>
-                      {textGlyph(row.hostId ?? row.key)}
-                    </Text>
-                  ) : (
-                    <Svg
-                      source={glyphSvg(row.hostId ?? row.key, findProject(row))}
-                      alt={t.glyph}
-                      width={22}
-                      height={22}
-                    />
-                  )}
-                  <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-                    {row.key !== hereId && row.hostId !== undefined ? (
-                      <Markdown
-                        key={`open-${row.key}`}
-                        text={`**[${escapeMarkdown(row.title)}](${conversationHref(row.hostId)})**`}
-                        pressableLinks={[conversationHref(row.hostId)]}
-                        onLinkPress={() => openConversation($, row.hostId)}
-                      />
-                    ) : (
-                      <Text weight="semibold" wrap="truncate-end">
-                        {row.title}
-                      </Text>
-                    )}
-                    <Box flexDirection="row" alignItems="center" gap={1}>
-                      {findTicket(row.title) !== undefined && (
-                        <Markdown
-                          key={`ticket-${row.key}`}
-                          dimColor
-                          text={`[${escapeMarkdown(`${findTicket(row.title)?.label} ↗`)}](${findTicket(row.title)?.url})`}
-                          pressableLinks={[findTicket(row.title)?.url ?? '']}
-                          onLinkPress={() => openTicket($, findTicket(row.title))}
-                        />
+      // A mail-like card: glyph, title and age, then facts and git state, side by side;
+      // the note and the summary below take the card's whole width, under the glyph too.
+      <Box key={`row-${row.key}`} flexDirection="column" gap={1}>
+        <Box flexDirection="row" alignItems="flex-start" gap={2}>
+          {Svg === undefined ? (
+            <Text color={glyphColor(row.hostId ?? row.key, findProject(row))}>
+              {textGlyph(row.hostId ?? row.key)}
+            </Text>
+          ) : (
+            <Svg
+              source={glyphSvg(row.hostId ?? row.key, findProject(row))}
+              alt={t.glyph}
+              width={22}
+              height={22}
+            />
+          )}
+          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+            <Box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={2}>
+              <Box flexDirection="column" flexShrink={1}>
+                {row.key !== hereId && row.hostId !== undefined ? (
+                  <Markdown
+                    key={`open-${row.key}`}
+                    text={`**[${escapeMarkdown(row.title)}](${conversationHref(row.hostId)})**`}
+                    pressableLinks={[conversationHref(row.hostId)]}
+                    onLinkPress={() => openConversation($, row.hostId)}
+                  />
+                ) : (
+                  <Text weight="semibold" wrap="truncate-end">
+                    {row.title}
+                  </Text>
+                )}
+              </Box>
+              <Box flexShrink={0}>
+                <Text dimColor size="caption">
+                  {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
+                </Text>
+              </Box>
+            </Box>
+            <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={2}>
+              <Box flexDirection="row" alignItems="center" gap={1} flexShrink={1}>
+                {findTicket(row.title) !== undefined && (
+                  <Markdown
+                    key={`ticket-${row.key}`}
+                    dimColor
+                    text={`[${escapeMarkdown(`${findTicket(row.title)?.label} ↗`)}](${findTicket(row.title)?.url})`}
+                    pressableLinks={[findTicket(row.title)?.url ?? '']}
+                    onLinkPress={() => openTicket($, findTicket(row.title))}
+                  />
+                )}
+                <Text dimColor size="footnote" wrap="truncate-end">
+                  {row.key === hereId ? `${t.here} · ${describe(row)}` : describe(row)}
+                </Text>
+              </Box>
+              {describeGit(row, git).length > 0 && (
+                <Box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+                  {describeGit(row, git).map((sign, index) => (
+                    // What git still holds stands out: mark, count and words.
+                    <Box key={`git-${row.key}-${sign.word}`} flexDirection="row" gap={1}>
+                      {index > 0 && (
+                        <Text dimColor size="caption">
+                          ·
+                        </Text>
                       )}
-                      <Text dimColor size="footnote" wrap="truncate-end">
-                        {row.key === hereId ? `${t.here} · ${describe(row)}` : describe(row)}
-                      </Text>
+                      <Text size="caption">{`${sign.mark} ${sign.word}`}</Text>
                     </Box>
-                    {row.entry?.note !== undefined && (
-                      <Text size="footnote" wrap="wrap">
-                        📝 {row.entry.note}
-                      </Text>
-                    )}
-                    <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-                      <Text dimColor size="caption">
-                        {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
-                      </Text>
-                      {describeGit(row, git).map(sign => (
-                        // What git still holds stands out from the age: mark, count and words.
-                        <Box key={`git-${row.key}-${sign.word}`} flexDirection="row" gap={1}>
-                          <Text dimColor size="caption">
-                            ·
-                          </Text>
-                          <Text size="caption">{`${sign.mark} ${sign.word}`}</Text>
-                        </Box>
-                      ))}
-                    </Box>
-                    {row.summary !== undefined && row.attention === undefined && (
-                      // The last turn's summary hangs from the lines above, behind an arrow.
-                      <Box key={`summary-${row.key}`} flexDirection="row">
-                        <Text size="footnote" weight="bold">
-                          {'▸\u00a0'}
-                        </Text>
-                        <Text size="footnote" dimColor wrap="truncate-end">
-                          {row.summary}
-                        </Text>
-                      </Box>
-                    )}
-                    {row.summary !== undefined && row.attention !== undefined && (
-                      <Text
-                        size="footnote"
-                        dimColor={row.attention !== 'blocked'}
-                        color={row.attention === 'blocked' ? 'warning' : undefined}
-                        wrap={row.attention === 'blocked' ? 'wrap' : 'truncate-end'}
-                      >
-                        {formatSummary(row)}
-                      </Text>
-                    )}
-                  </Box>
-                  {!row.isDesktop && row.key !== hereId && (
-                    <Button
-                      key={`remove-${row.key}`}
-                      label={t.remove}
-                      dimColor
-                      onPress={() => row.entry !== undefined && removeEntry($, row.entry)}
-                    />
-                  )}
+                  ))}
                 </Box>
+              )}
+            </Box>
+          </Box>
+          {!row.isDesktop && row.key !== hereId && (
+            <Button
+              key={`remove-${row.key}`}
+              label={t.remove}
+              dimColor
+              onPress={() => row.entry !== undefined && removeEntry($, row.entry)}
+            />
+          )}
+        </Box>
+        {row.entry?.note !== undefined && (
+          <Text size="footnote" wrap="wrap">
+            📝 {row.entry.note}
+          </Text>
+        )}
+        {row.summary !== undefined && row.attention === undefined && (
+          // The last turn's summary, behind a triangle.
+          <Box key={`summary-${row.key}`} flexDirection="row">
+            <Text size="footnote" weight="bold">
+              {'▸\u00a0'}
+            </Text>
+            <Text size="footnote" dimColor wrap="truncate-end">
+              {row.summary}
+            </Text>
+          </Box>
+        )}
+        {row.summary !== undefined && row.attention !== undefined && (
+          <Text
+            size="footnote"
+            dimColor={row.attention !== 'blocked'}
+            color={row.attention === 'blocked' ? 'warning' : undefined}
+            wrap={row.attention === 'blocked' ? 'wrap' : 'truncate-end'}
+          >
+            {formatSummary(row)}
+          </Text>
+        )}
+      </Box>
     )
     const listRows = (list: readonly Row[]) =>
       list.flatMap((row, index) => [
@@ -1250,7 +1266,7 @@ async function readHead(
 }
 
 // Uncommitted only shows on the branch the folder is on: git has one working copy
-// a folder. Unpushed counts the commits no remote has. A merged pull request
+// a folder. Unpushed counts the commits no remote has, merges aside. A merged pull request
 // settles merged; otherwise the default branch must hold the branch's tip.
 async function readGitState(
   $: EngineInterface,
@@ -1261,7 +1277,15 @@ async function readGitState(
 ): Promise<GitState> {
   const isDirty = head?.branch === branch && head.isDirty
   const unpushed = Number(
-    (await runGit($, repo, ['rev-list', '--count', `refs/heads/${branch}`, '--not', '--remotes'])) ?? '0',
+    (await runGit($, repo, [
+      'rev-list',
+      '--count',
+      // A merge of the default branch into a work branch, kept local on purpose, is no work to push.
+      '--no-merges',
+      `refs/heads/${branch}`,
+      '--not',
+      '--remotes',
+    ])) ?? '0',
   )
   const defaultRef =
     (await runGit($, repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])) ?? 'origin/main'
