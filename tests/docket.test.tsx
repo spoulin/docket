@@ -50,6 +50,21 @@ const FR = {
 
 const CYCLE = { options: { ...FR.options, statusControl: 'cycle' } }
 
+// Shows only the given groups through the status picker: check all, then toggle.
+async function showOnly(
+  ui: { select: (target: { key: string; value: string }) => Promise<unknown> },
+  ids: readonly string[],
+  all: readonly string[] = ['en-cours', 'en-attente', 'termine', 'recycle'],
+): Promise<void> {
+  await ui.select({ key: 'status-filter', value: 'tous' })
+  for (const id of ids.filter(one => !all.includes(one))) {
+    await ui.select({ key: 'status-filter', value: `basculer:${id}` })
+  }
+  for (const id of all.filter(one => !ids.includes(one))) {
+    await ui.select({ key: 'status-filter', value: `basculer:${id}` })
+  }
+}
+
 let clock: { advance: (ms: number) => Promise<void> }
 
 const DESKTOP = '/Users/me/Library/Application Support/Claude/claude-code-sessions/acc/org'
@@ -216,16 +231,16 @@ test('the board groups the conversations and filters on remote', FR, async ($, o
   await $.command.run({ command: 'docket', args: 'en-cours' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /^En cours \(1\)$/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^En attente \(1\)$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Box', key: 'heading-en-cours' })).toBeTruthy()
+  expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^my-app · remote$/ })).toBeTruthy()
 
   await ui.select({ key: 'flag-filter-remote', value: 'oui' })
-  expect(await ui.find({ type: 'Text', text: /^En cours/ })).toBeFalsy()
-  expect(await ui.find({ type: 'Text', text: /^En attente \(1\)$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Box', key: 'heading-en-cours' })).toBeFalsy()
+  expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
 
   await ui.press({ key: 'remove-other' })
-  expect(await ui.find({ type: 'Text', text: /^En attente/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeFalsy()
   expect(store.has('session:other')).toBe(false)
   await ui.unmount()
 })
@@ -238,16 +253,16 @@ test('the board shows one status at a time', FR, async ($, on) => {
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const statusFilter = await ui.find({ type: 'Select', key: 'status-filter' })
-  expect(statusFilter?.props.options.find(option => option.value === 'en-attente')?.label).toBe(
-    'En attente (1)',
-  )
+  expect(
+    statusFilter?.props.options.find(option => option.value === 'basculer:en-attente')?.label,
+  ).toBe('☑ En attente (1)')
 
-  await ui.select({ key: 'status-filter', value: 'en-attente' })
-  expect(await ui.find({ type: 'Text', text: /^En cours/ })).toBeFalsy()
-  expect(await ui.find({ type: 'Text', text: /^En attente \(1\)$/ })).toBeTruthy()
+  await showOnly(ui, ['en-attente'])
+  expect(await ui.find({ type: 'Box', key: 'heading-en-cours' })).toBeFalsy()
+  expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
 
   await ui.select({ key: 'status-filter', value: 'tous' })
-  expect(await ui.find({ type: 'Text', text: /^En cours \(1\)$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Box', key: 'heading-en-cours' })).toBeTruthy()
   await ui.unmount()
 })
 
@@ -291,12 +306,12 @@ test('the board lists the desktop conversations by their sidebar title', FR, asy
   expect(await ui.find({ type: 'Text', text: /^Ici · my-app/ })).toBeTruthy()
   expect(await ui.find({ type: 'Markdown', key: 'open-here' })).toBeFalsy()
   const statusFilter = await ui.find({ type: 'Select', key: 'status-filter' })
-  expect(statusFilter?.props.options.find(option => option.value === 'aucun')?.label).toBe(
-    'Sans statut (1)',
+  expect(statusFilter?.props.options.find(option => option.value === 'basculer:aucun')?.label).toBe(
+    '☐ Sans statut (1)',
   )
   expect(await ui.find({ type: 'Text', text: /Revue PR 7368/ })).toBeFalsy()
 
-  await ui.select({ key: 'status-filter', value: 'aucun' })
+  await showOnly(ui, ['aucun'])
   expect((await ui.find({ type: 'Markdown', key: 'open-desk' }))?.props.text).toContain('Revue PR 7368')
   expect(await ui.find({ type: 'Text', text: /^il y a 10 min$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Markdown', key: 'open-desk' })).toBeTruthy()
@@ -335,7 +350,7 @@ test('the perso flag separates personal conversations from job ones', FR, async 
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.select({ key: 'flag-filter-perso', value: 'oui' })
-  await ui.select({ key: 'status-filter', value: 'aucun' })
+  await showOnly(ui, ['aucun'])
   expect(await ui.find({ type: 'Markdown', key: 'open-bws' })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /BWS2 · perso|my-app · perso/ })).toBeTruthy()
 
@@ -353,12 +368,14 @@ test('the board opens with the filters last chosen in any conversation', FR, asy
   await $.command.run({ command: 'docket', args: '' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Select', key: 'status-filter' }))?.props.value).toBe('en-attente')
+  expect((await ui.find({ type: 'Select', key: 'status-filter' }))?.props.options[0]?.label).toBe(
+    '1 statut',
+  )
   expect((await ui.find({ type: 'Select', key: 'flag-filter-remote' }))?.props.value).toBe('oui')
 
   await ui.select({ key: 'flag-filter-perso', value: 'oui' })
   expect(store.get('filters')).toEqual({
-    status: 'en-attente',
+    status: ['en-attente'],
     period: 'tout',
     flags: { perso: 'oui', remote: 'oui' },
   })
@@ -410,12 +427,15 @@ test('a row shows the last turn summary, what is asked and the pull request', FR
   await $.command.run({ command: 'docket', args: '' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.select({ key: 'status-filter', value: 'aucun' })
+  await showOnly(ui, ['aucun'])
   expect(await ui.find({ type: 'Text', text: /^my-app · PR #7368 ouverte$/ })).toBeTruthy()
   expect(
     await ui.find({ type: 'Text', text: /^⚠️ The reviewer's answer on the open question$/ }),
   ).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Récap QA publié$/ })).toBeTruthy()
+  // A plain summary hangs behind an arrow.
+  expect(await ui.find({ type: 'Box', key: 'summary-done' } as never)).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: '↳\u00a0' })).toBeTruthy()
   await ui.unmount()
 })
 
@@ -433,7 +453,7 @@ test('statuses kept under a CLI id move to the conversation local id', FR, async
   expect(store.get('host:local_talk')).toMatchObject({ status: 'en-attente', hostId: 'local_talk' })
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.select({ key: 'status-filter', value: 'en-attente' })
+  await showOnly(ui, ['en-attente'])
   expect((await ui.find({ type: 'Markdown', key: 'open-talk' }))?.props.text).toContain('📰 Talk to me Bro')
   await ui.unmount()
 })
@@ -675,10 +695,11 @@ test(
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
     const statusFilter = await ui.find({ type: 'Select', key: 'status-filter' })
     expect(statusFilter?.props.options.map(option => option.value)).toEqual([
+      'resume',
+      'basculer:todo',
+      'basculer:doing',
+      'basculer:aucun',
       'tous',
-      'todo',
-      'doing',
-      'aucun',
     ])
     await ui.select({ key: 'flag-filter-client', value: 'oui' })
     expect(store.get('filters')).toMatchObject({ flags: { client: 'oui' } })
@@ -740,7 +761,7 @@ test('the band counts the conversations that wait on the person', FR, async ($, 
   // The your-turn section heads the board, whatever the filters, above the statuses.
   await $.command.run({ command: 'docket', args: 'termine' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: '⚠️ À toi (2)' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^⚠️ À toi/ })).toBeFalsy()
   // The section and the filters each sit in a frame: orange for what waits, the theme's for the rest.
   expect((await ui.find({ type: 'Box', key: 'your-turn' } as never))?.props).toMatchObject({
     borderStyle: 'round',
@@ -757,8 +778,8 @@ test('the band counts the conversations that wait on the person', FR, async ($, 
   // The rows of the section are left out of the counts below.
   const statusFilter = await ui.find({ type: 'Select', key: 'status-filter' })
   expect(statusFilter?.props.options.map(option => option.value)).not.toContain('a-toi')
-  expect(statusFilter?.props.options.find(option => option.value === 'aucun')?.label).toBe(
-    'Sans statut (1)',
+  expect(statusFilter?.props.options.find(option => option.value === 'basculer:aucun')?.label).toBe(
+    '☐ Sans statut (1)',
   )
   await ui.unmount()
   expect(store.get('filters')).toMatchObject({ status: 'tous' })
@@ -798,7 +819,9 @@ test('a your-turn filter kept by 0.4 falls back to every status', FR, async ($, 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'docket', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Select', key: 'status-filter' }))?.props.value).toBe('tous')
+  expect((await ui.find({ type: 'Select', key: 'status-filter' }))?.props.options[0]?.label).toBe(
+    'Tous',
+  )
   // Nothing waits on the person: no section.
   expect(await ui.find({ type: 'Text', text: /^⚠️ À toi/ })).toBeFalsy()
   await ui.select({ key: 'period-filter', value: 'today' })
@@ -908,12 +931,13 @@ test(
     const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
     const options = (await ui.find({ type: 'Select', key: 'status-filter' }))?.props.options ?? []
     expect(options.map(option => option.label)).toEqual([
-      'Tous (0)',
-      'En cours (0)',
-      'En attente (0)',
-      'Recyclé (0)',
-      'Terminé (0)',
-      'Sans statut (0)',
+      'Tous',
+      '☑ En cours (0)',
+      '☑ En attente (0)',
+      '☑ Recyclé (0)',
+      '☑ Terminé (0)',
+      '☐ Sans statut (0)',
+      'Tout cocher',
     ])
     await ui.unmount()
   },
@@ -947,3 +971,188 @@ test(
     await ui.unmount()
   },
 )
+
+test('a search keeps the conversations whose title, folder, ticket or note match', FR, async ($, on) => {
+  mockEngine(
+    on,
+    {
+      filters: { status: 'aucun', flags: {} },
+      'host:local_noted': { ...OTHER, sessionId: 'noted', hostId: 'local_noted', status: null, note: 'Attendre la révision' },
+    },
+    {
+      'local_one.json': desktopRecord('one', 'ALTO-42 Préparer la démo'),
+      'local_two.json': desktopRecord('two', 'Corriger le rapport'),
+      'local_noted.json': desktopRecord('noted', 'Sans rapport'),
+    },
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.input({ key: 'search', text: 'demo', kind: 'change' })
+  // Accents and case aside, by title.
+  expect(await ui.find({ type: 'Markdown', key: 'open-one' })).toBeTruthy()
+  expect(await ui.find({ type: 'Markdown', key: 'open-two' })).toBeFalsy()
+
+  await ui.input({ key: 'search', text: 'revision', kind: 'change' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-noted' })).toBeTruthy()
+  expect(await ui.find({ type: 'Markdown', key: 'open-one' })).toBeFalsy()
+
+  await ui.input({ key: 'search', text: 'introuvable', kind: 'change' })
+  expect(await ui.find({ type: 'Text', text: 'Rien ne correspond à « introuvable ».' })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('the status picker checks several groups and keeps one at least', FR, async ($, on) => {
+  const store = mockEngine(on, {
+    'host:local_a': { ...OTHER, sessionId: 'a', hostId: 'local_a', status: 'en-cours' },
+    'host:local_b': { ...OTHER, sessionId: 'b', hostId: 'local_b', status: 'en-attente' },
+    'host:local_c': { ...OTHER, sessionId: 'c', hostId: 'local_c', status: 'termine' },
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await showOnly(ui, ['en-cours', 'en-attente'])
+  const picker = await ui.find({ type: 'Select', key: 'status-filter' })
+  expect(picker?.props.value).toBe('resume')
+  expect(picker?.props.options[0]?.label).toBe('2 statuts')
+  expect(store.get('filters')).toMatchObject({ status: ['en-cours', 'en-attente'] })
+  expect(await ui.find({ type: 'Box', key: 'heading-termine' })).toBeFalsy()
+
+  // Down to one group, the last one cannot be unchecked.
+  await ui.select({ key: 'status-filter', value: 'basculer:en-cours' })
+  await ui.select({ key: 'status-filter', value: 'basculer:en-attente' })
+  expect(store.get('filters')).toMatchObject({ status: ['en-attente'] })
+
+  // Three groups read as a count; checking every status reads as all.
+  await ui.select({ key: 'status-filter', value: 'basculer:termine' })
+  await ui.select({ key: 'status-filter', value: 'basculer:aucun' })
+  await ui.select({ key: 'status-filter', value: 'basculer:recycle' })
+  expect((await ui.find({ type: 'Select', key: 'status-filter' }))?.props.options[0]?.label).toBe(
+    '4 statuts',
+  )
+  await ui.select({ key: 'status-filter', value: 'tous' })
+  expect(store.get('filters')).toMatchObject({ status: 'tous' })
+  await ui.unmount()
+})
+
+test('a search sets the filters aside and they come back once it is cleared', FR, async ($, on) => {
+  const store = mockEngine(
+    on,
+    // Only in progress, the last hour, and personal conversations.
+    { filters: { status: ['en-cours'], period: '1h', flags: { perso: 'oui' } } },
+    {
+      'local_old.json': desktopRecord('old', 'Rapport annuel', false, { lastActivityAt: 1 }),
+    },
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-old' })).toBeFalsy()
+
+  // No status, too old, not personal: the search still finds it.
+  await ui.input({ key: 'search', text: 'rapport', kind: 'change' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-old' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'Les filtres sont en pause pendant la recherche.' })).toBeTruthy()
+  expect(store.get('filters')).toMatchObject({ status: ['en-cours'], period: '1h', flags: { perso: 'oui' } })
+
+  await ui.input({ key: 'search', text: '', kind: 'change' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-old' })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: 'Les filtres sont en pause pendant la recherche.' })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('a board drawn again after a while reads the conversations again', FR, async ($, on) => {
+  const files: Record<string, string> = {}
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, files)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const first = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await first.find({ type: 'Markdown', key: 'open-late' })).toBeFalsy()
+  await first.unmount()
+
+  // Another conversation appeared; coming back draws the board after 10 seconds.
+  files['local_late.json'] = desktopRecord('late', 'Arrivée tard')
+  await clock.advance(10_000)
+  const again = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await clock.advance(1)
+  expect(await again.find({ type: 'Markdown', key: 'open-late' })).toBeTruthy()
+  await again.unmount()
+})
+
+test('a search hides the filters and the refresh button until it is cleared', FR, async ($, on) => {
+  mockEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.input({ key: 'search', text: 'qa', kind: 'change' })
+  expect(await ui.find({ type: 'Select', key: 'status-filter' })).toBeFalsy()
+  expect(await ui.find({ type: 'Button', key: 'refresh' })).toBeFalsy()
+
+  await ui.input({ key: 'search', text: '', kind: 'change' })
+  expect(await ui.find({ type: 'Select', key: 'status-filter' })).toBeTruthy()
+  expect(await ui.find({ type: 'Button', key: 'refresh' })).toBeTruthy()
+  await ui.unmount()
+})
+
+test('a row shows what git still holds of the branch it committed on', FR, async ($, on) => {
+  const store = mockEngine(
+    on,
+    { filters: { status: 'aucun', flags: {} } },
+    {
+      'local_work.json': desktopRecord('work', 'Travail', false, {
+        writtenBranches: ['/repo\u0000feature'],
+      }),
+      'local_done.json': desktopRecord('done', 'Fini', false, {
+        writtenBranches: ['/repo\u0000old'],
+        prs: [{ prNumber: 9, state: 'MERGED' }],
+      }),
+    },
+  )
+  const runs: string[] = []
+  on('process.run', (_, e) => {
+    const args = e.argv.slice(3).join(' ')
+    runs.push(args)
+    const answers: Record<string, string> = {
+      'rev-parse --abbrev-ref HEAD': 'feature',
+      'status --porcelain --untracked-files=no': ' M file.ts',
+      'rev-list --count refs/heads/feature --not --remotes': '2',
+      'rev-list --count refs/heads/old --not --remotes': '0',
+      'symbolic-ref --short refs/remotes/origin/HEAD': 'origin/main',
+      'rev-parse --verify --quiet refs/heads/feature': 'abc',
+    }
+    const isAncestor = args.startsWith('merge-base')
+
+    return {
+      value: {
+        exitCode: isAncestor ? 1 : answers[args] === undefined ? 1 : 0,
+        stdout: answers[args] ?? '',
+        stderr: '',
+      },
+    }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await clock.advance(1)
+  // Each sign stands out from the age: its mark, count and words in plain text.
+  expect((await ui.find({ type: 'Text', text: '↑2 non poussé' }))?.props.dimColor).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: '⑂ pas mergé' })).toBeTruthy()
+  // Merged through its pull request, nothing left to push: no sign.
+  expect(await ui.find({ type: 'Text', text: 'my-app · PR #9 mergée' })).toBeTruthy()
+  expect(store.get('git')).toMatchObject({ states: expect.any(Object) })
+
+  // Drawn again within two minutes, the board reads git's answer from the store.
+  const asked = runs.length
+  await ui.unmount()
+  const again = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await clock.advance(1)
+  expect(runs.length).toBe(asked)
+  await again.unmount()
+})

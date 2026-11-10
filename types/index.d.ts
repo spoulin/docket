@@ -1,8 +1,8 @@
 // A status id from the `statuses` option, or one of the defaults.
 export type Status = string
 
-// A status id, 'tous' for every status, or 'aucun' for conversations with none.
-export type StatusFilter = string
+// 'tous' for every status, or the ids of the groups to show ('aucun' for none).
+export type StatusFilter = 'tous' | string[]
 
 // How far back the statuses tab goes, by last activity.
 export type Period = 'tout' | '1h' | '2h' | '3h' | '6h' | 'today' | '7d' | '30d'
@@ -38,7 +38,13 @@ export type DesktopSession = {
   summary?: string
   attention?: 'blocked' | 'review_ready'
   pr?: { number: number; state: string }
+  // The branches the conversation committed on.
+  branches?: { repo: string; branch: string }[]
 }
+
+// What git says of one branch: files changed on it, commits no remote has, and
+// whether the default branch holds it (or its pull request was merged).
+export type GitState = { isDirty: boolean; unpushed: number; isMerged: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -46,8 +52,10 @@ declare module 'claude-code' {
       current: Shaped<Entry | null>
       all: Shaped<Entry[]>
       desktop: Shaped<DesktopSession[]>
+      git: Record<string, GitState>
       statusFilter: StatusFilter
       period: Period
+      search: string
       // By flag id; a flag left out keeps every row.
       flagFilters: Record<string, FlagFilter>
       // Bumped on each automatic refresh while the board is shown, so its ages redraw.

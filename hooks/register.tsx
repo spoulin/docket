@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { DesktopSession, Entry, FlagFilter, Period, StatusFilter } from '../types'
+import type { DesktopSession, Entry, FlagFilter, GitState, Period, StatusFilter } from '../types'
 
 const PANE = 'docket'
 const KEY_PREFIX = 'session:'
@@ -9,6 +9,9 @@ const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
 // The app writes a turn's summary to its record a moment after the turn ends.
 const SETTLE_MS = 3_000
+// A board drawn after this long without a refresh reads the data again: coming back
+// to a conversation redraws its board, and no event says the person came back.
+const STALE_MS = 5_000
 // A one-pixel gray rule, stretched to the row's width; a mid gray reads on light and dark.
 const SEPARATOR_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 1" preserveAspectRatio="none">' +
@@ -28,7 +31,6 @@ const TEXTS = {
     noteSaved: 'Note saved.',
     noteCleared: 'Note cleared.',
     yourTurnBand: (count: number) => `⚠️ ${count}`,
-    yourTurn: (count: number) => `⚠️ Your turn (${count})`,
     saveFailed: 'The conversation status could not be saved.',
     paneTitle: '🏷️ Docket',
     statuses: [
@@ -42,7 +44,9 @@ const TEXTS = {
       { id: 'perso', label: 'Kind', on: 'Personal', off: 'Work', aliases: ['personal'] },
     ],
     not: (label: string) => `Not ${label.toLowerCase()}`,
-    all: (count: number) => `All (${count})`,
+    checkAll: 'Check all',
+    someStatuses: (count: number) => (count === 1 ? '1 status' : `${count} statuses`),
+    everyStatus: 'All',
     allFlags: 'All',
     status: 'Status',
     period: 'Period',
@@ -59,6 +63,12 @@ const TEXTS = {
     } as Record<Period, string>,
     noStatus: 'No status',
     empty: 'No conversation here.',
+    search: 'Search',
+    noMatch: (query: string) => `Nothing matches "${query}".`,
+    uncommitted: 'uncommitted',
+    unpushed: 'unpushed',
+    unmerged: 'not merged',
+    filtersPaused: 'The filters wait while you search.',
     separator: 'Separator',
     glyph: 'Conversation mark',
     here: 'Here',
@@ -86,7 +96,6 @@ const TEXTS = {
     noteSaved: 'Note enregistrée.',
     noteCleared: 'Note effacée.',
     yourTurnBand: (count: number) => `⚠️ ${count}`,
-    yourTurn: (count: number) => `⚠️ À toi (${count})`,
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     paneTitle: '🏷️ Docket',
     statuses: [
@@ -100,7 +109,9 @@ const TEXTS = {
       { id: 'perso', label: 'Type', on: 'Perso', off: 'Job', aliases: ['personal'] },
     ],
     not: (label: string) => `Pas ${label.toLowerCase()}`,
-    all: (count: number) => `Tous (${count})`,
+    checkAll: 'Tout cocher',
+    someStatuses: (count: number) => (count === 1 ? '1 statut' : `${count} statuts`),
+    everyStatus: 'Tous',
     allFlags: 'Tous',
     status: 'Statut',
     period: 'Période',
@@ -117,6 +128,12 @@ const TEXTS = {
     } as Record<Period, string>,
     noStatus: 'Sans statut',
     empty: 'Aucune conversation ici.',
+    search: 'Recherche',
+    noMatch: (query: string) => `Rien ne correspond à « ${query} ».`,
+    uncommitted: 'non commité',
+    unpushed: 'non poussé',
+    unmerged: 'pas mergé',
+    filtersPaused: 'Les filtres sont en pause pendant la recherche.',
     separator: 'Séparateur',
     glyph: 'Repère de la conversation',
     here: 'Ici',
@@ -192,6 +209,9 @@ const NO_STATUS = 'aucun'
 const YOUR_TURN = 'a-toi'
 // Ids the statuses and flags cannot take: the filter's own values, and the note command.
 const RESERVED_IDS: readonly string[] = [ALL_STATUSES, NO_STATUS, YOUR_TURN, 'note']
+// The status picker's own values: its summary line, and a group to check or uncheck.
+const STATUS_SUMMARY = 'resume'
+const STATUS_TOGGLE = 'basculer:'
 const NOTE_MAX = 200
 const FLAG_FILTERS: readonly FlagFilter[] = ['tous', 'oui', 'non']
 
@@ -220,15 +240,19 @@ const all = atom({ plugin: 'docket', key: 'all' } as const, [], {
   shape: 'entry-2',
 })
 const desktop = atom({ plugin: 'docket', key: 'desktop' } as const, [], {
-  shape: 'desktop-1',
+  shape: 'desktop-2',
 })
+// What git says of each branch a conversation committed on, by repository and branch.
+const gitStates = atom({ plugin: 'docket', key: 'git' } as const, {} as Record<string, GitState>)
 const statusFilter = atom(
   { plugin: 'docket', key: 'statusFilter' } as const,
-  'tous',
+  'tous' as StatusFilter,
 )
 const tick = atom({ plugin: 'docket', key: 'tick' } as const, 0)
 const flagFilters = atom({ plugin: 'docket', key: 'flagFilters' } as const, {})
 const periodFilter = atom({ plugin: 'docket', key: 'period' } as const, 'tout' as Period)
+// The search is this board's own; it is not kept between conversations.
+const searchQuery = atom({ plugin: 'docket', key: 'search' } as const, '')
 
 const PERIODS: readonly Period[] = ['tout', '1h', '2h', '3h', '6h', 'today', '7d', '30d']
 const HOUR_MS = 3_600_000
@@ -277,6 +301,14 @@ export const register: Register = (on, options) => {
     })
 
     return started
+  })
+
+  // The desktop app connecting to the conversation, maybe on coming back to it.
+  on('session.attach', async ($, e, next) => {
+    const attached = await next(e)
+    void refreshBoard($).catch(() => undefined)
+
+    return attached
   })
 
   on('session.end', async ($, e, next) => {
@@ -473,6 +505,11 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    if ((await $.clock.now()) - lastRefreshAt > STALE_MS) {
+      // Not awaited: the board draws now, and again once the data is read.
+      void refreshBoard($).catch(() => undefined)
+    }
+    void refreshGitIfStale($).catch(() => undefined)
     const elements = $.ui.resolve(e)
     const { Box, Button, Markdown, Text } = elements
     // Not every surface draws a Select: those get buttons instead.
@@ -491,27 +528,35 @@ export const register: Register = (on, options) => {
         </Box>
       )
     const rows = buildRows(await read($, desktop), await read($, all))
+    const git = await read($, gitStates)
     await read($, tick)
     const chosen = await read($, flagFilters)
+    const query = await read($, searchQuery)
+    // A search looks through every conversation: the filters wait, unchanged, for it to end.
+    const isSearching = query.trim() !== ''
     // A filter the options hide keeps every row, whatever was chosen before.
     const isVisible = (id: string) => filterIds().includes(id)
     const flagFilter = (flag: FlagDef): FlagFilter =>
       (isVisible(flag.id) ? chosen[flag.id] : undefined) ?? 'tous'
-    const onlyStatus = isVisible(STATUS_FILTER_ID)
-      ? parseStatusFilter(await read($, statusFilter))
+    const appliedFlagFilter = (flag: FlagDef): FlagFilter => (isSearching ? 'tous' : flagFilter(flag))
+    const statusChoice: StatusFilter = isVisible(STATUS_FILTER_ID)
+      ? await read($, statusFilter)
       : ALL_STATUSES
+    const selected = resolveStatusFilter(statusChoice)
     const hereId = await $.session.id()
     const now = await $.clock.now()
     const period = isVisible(PERIOD_FILTER_ID) ? await read($, periodFilter) : 'tout'
-    const since = findPeriodStart(period, now)
-    const shown = rows.filter(
+    const since = isSearching ? Number.NEGATIVE_INFINITY : findPeriodStart(period, now)
+    const found = rows.filter(row => matchesSearch(row, query))
+    const shown = found.filter(
       row =>
-        row.lastActivityAt >= since && flags().every(flag => matchesFlag(row, flag, flagFilter(flag))),
+        row.lastActivityAt >= since &&
+        flags().every(flag => matchesFlag(row, flag, appliedFlagFilter(flag))),
     )
     const periodOptions = PERIODS.map(id => ({ value: id, label: t.periods[id] }))
     // What waits on the person heads the board, filters aside, and is not repeated below.
     const isYourTurn = (row: Row) => row.attention === 'blocked' && row.key !== hereId
-    const yourTurn = rows.filter(isYourTurn)
+    const yourTurn = found.filter(isYourTurn)
     const listed = shown.filter(row => !isYourTurn(row))
     const groups: { id: string; label: string; rows: Row[] }[] = [
       ...statuses().map(status => ({
@@ -521,15 +566,23 @@ export const register: Register = (on, options) => {
       })),
       { id: NO_STATUS, label: t.noStatus, rows: listed.filter(row => !hasStatus(row)) },
     ]
-    const isShown = (id: string) =>
-      onlyStatus === id || (onlyStatus === ALL_STATUSES && id !== NO_STATUS)
+    const isChecked = (id: string) => selected.includes(id)
+    const isShown = (id: string) => isSearching || isChecked(id)
+    // The picker shows a summary of the checked groups; each other choice checks or
+    // unchecks one group, and the last checked group stays checked.
+    const shownGroups = groups.filter(group => isChecked(group.id))
+    // A short summary: its width does not move with the names or the counts.
+    const summary =
+      statusChoice === ALL_STATUSES ? t.everyStatus : t.someStatuses(shownGroups.length)
     const statusOptions = [
-      { value: ALL_STATUSES, label: t.all(listed.filter(row => hasStatus(row)).length) },
+      { value: STATUS_SUMMARY, label: summary },
       ...groups.map(group => ({
-        value: group.id,
-        label: `${group.label} (${group.rows.length})`,
+        value: `${STATUS_TOGGLE}${group.id}`,
+        label: `${isChecked(group.id) ? '☑' : '☐'} ${group.label} (${group.rows.length})`,
       })),
+      { value: ALL_STATUSES, label: t.checkAll },
     ]
+    const pickStatus = (value: string) => saveStatusFilter($, pickStatusFilter(selected, value))
     const renderRow = (row: Row) => (
                 <Box key={`row-${row.key}`} flexDirection="row" alignItems="flex-start" gap={2}>
                   {Svg === undefined ? (
@@ -576,10 +629,32 @@ export const register: Register = (on, options) => {
                         📝 {row.entry.note}
                       </Text>
                     )}
-                    <Text dimColor size="caption">
-                      {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
-                    </Text>
-                    {row.summary !== undefined && (
+                    <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
+                      <Text dimColor size="caption">
+                        {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
+                      </Text>
+                      {describeGit(row, git).map(sign => (
+                        // What git still holds stands out from the age: mark, count and words.
+                        <Box key={`git-${row.key}-${sign.word}`} flexDirection="row" gap={1}>
+                          <Text dimColor size="caption">
+                            ·
+                          </Text>
+                          <Text size="caption">{`${sign.mark} ${sign.word}`}</Text>
+                        </Box>
+                      ))}
+                    </Box>
+                    {row.summary !== undefined && row.attention === undefined && (
+                      // The last turn's summary hangs from the lines above, behind an arrow.
+                      <Box key={`summary-${row.key}`} flexDirection="row">
+                        <Text size="footnote" weight="bold">
+                          {'↳\u00a0'}
+                        </Text>
+                        <Text size="footnote" dimColor wrap="truncate-end">
+                          {row.summary}
+                        </Text>
+                      </Box>
+                    )}
+                    {row.summary !== undefined && row.attention !== undefined && (
                       <Text
                         size="footnote"
                         dimColor={row.attention !== 'blocked'}
@@ -606,10 +681,15 @@ export const register: Register = (on, options) => {
         renderRow(row),
       ])
     // Each picker with its label above it, laid out in two columns, row by row.
+    // The right column's pickers sit against the frame's right edge, label and all.
     const labelled = (key: string, label: string, node: JSX.Element) => ({
       id: key,
-      node: (
-        <Box key={`picker-${key}`} flexDirection="column">
+      node: (isRight: boolean) => (
+        <Box
+          key={`picker-${key}`}
+          flexDirection="column"
+          alignItems={isRight ? 'flex-end' : 'flex-start'}
+        >
           <Text dimColor size="caption">
             {label}
           </Text>
@@ -627,8 +707,8 @@ export const register: Register = (on, options) => {
               <Select
                 key="status-filter"
                 options={statusOptions}
-                value={onlyStatus}
-                onSelect={(value: string) => saveStatusFilter($, value)}
+                value={STATUS_SUMMARY}
+                onSelect={(value: string) => pickStatus(value)}
               />,
             ),
             labelled(
@@ -658,13 +738,13 @@ export const register: Register = (on, options) => {
     const fallbackRows: Record<string, JSX.Element> = {
       [STATUS_FILTER_ID]: (
             <Box key="fallback-status" flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-              {statusOptions.map(option => (
+              {statusOptions.slice(1).map(option => (
                 <Button
                   key={`only-${option.value}`}
                   label={option.label}
-                  variant={onlyStatus === option.value ? 'primary' : undefined}
-                  dimColor={onlyStatus !== option.value}
-                  onPress={() => saveStatusFilter($, option.value)}
+                  plain
+                  dimColor={option.label.startsWith('☐')}
+                  onPress={() => pickStatus(option.value)}
                 />
               ))}
             </Box>
@@ -707,12 +787,6 @@ export const register: Register = (on, options) => {
       ),
     }
     const pickers = filterIds().flatMap(id => allPickers.filter(picker => picker.id === id))
-    // Refresh has a row of its own under the pickers, centered: a button keeps its own width.
-    const tools = (
-      <Box key="tools" flexDirection="row" justifyContent="center" marginTop={1}>
-        <Button key="refresh" label={t.refresh} onPress={() => refreshAll($)} />
-      </Box>
-    )
     return (
       <Box flexDirection="column" gap={1}>
         {yourTurn.length > 0 && (
@@ -724,17 +798,37 @@ export const register: Register = (on, options) => {
             borderColor="warning"
             paddingX={1}
           >
-            <Text weight="bold" size="heading" color="warning">
-              {t.yourTurn(yourTurn.length)}
-            </Text>
             {listRows(yourTurn)}
           </Box>
         )}
         <Box key="filters" flexDirection="column" borderStyle="round" borderColor="promptBorder" paddingX={1}>
+          {'Input' in elements && (
+            <Box key="search-row" flexDirection="column" alignItems="stretch" width="100%">
+              <elements.Input
+                key="search"
+                placeholder={t.search}
+                value={query}
+                onInput={(value: string) => setSearch($, value)}
+                onSubmit={(value: string) => setSearch($, value)}
+              />
+            </Box>
+          )}
+          {isSearching && (
+            <Box key="search-note" marginTop={1}>
+              <Text dimColor size="caption">
+                {t.filtersPaused}
+              </Text>
+            </Box>
+          )}
+          {/* While a search holds text, only the search shows: the filters wait. */}
+          {!isSearching && (
+            <Box key="filter-body" flexDirection="column">
+          <Box key="rule-search" marginY={1}>
+            {separator('rule-search-line')}
+          </Box>
           {Select === undefined ? (
           <Box flexDirection="column" gap={1}>
             {filterIds().map(id => fallbackRows[id])}
-            {tools}
           </Box>
         ) : (
           <Box flexDirection="column" gap={1}>
@@ -743,20 +837,30 @@ export const register: Register = (on, options) => {
                 <Box
                   key={`filter-column-${column}`}
                   flexDirection="column"
+                  alignItems={column === 1 ? 'flex-end' : 'flex-start'}
                   gap={1}
                   flexGrow={1}
                   flexShrink={1}
                 >
-                  {pickers.filter((_, index) => index % 2 === column).map(picker => picker.node)}
+                  {pickers
+                    .filter((_, index) => index % 2 === column)
+                    .map(picker => picker.node(column === 1))}
                 </Box>
               ))}
             </Box>
-            {tools}
           </Box>
+          )}
+          <Box key="rule-refresh" marginY={1}>
+            {separator('rule-refresh-line')}
+          </Box>
+          <Box key="refresh-row" flexDirection="row" justifyContent="flex-end">
+            <Button key="refresh" label={t.refresh} onPress={() => refreshAll($)} />
+          </Box>
+            </Box>
           )}
         </Box>
         {groups.every(group => !isShown(group.id) || group.rows.length === 0) && (
-          <Text dimColor>{t.empty}</Text>
+          <Text dimColor>{query.trim() === '' ? t.empty : t.noMatch(query.trim())}</Text>
         )}
         {groups.map(group => {
           if (!isShown(group.id) || group.rows.length === 0) {
@@ -765,9 +869,11 @@ export const register: Register = (on, options) => {
 
           return (
             <Box key={`group-${group.id}`} flexDirection="column" gap={1} marginTop={1}>
-              <Text weight="bold" size="heading">
-                {group.label} ({group.rows.length})
-              </Text>
+              <Box key={`heading-${group.id}`}>
+                <Text weight="bold" size="title">
+                  {`${group.label} (${group.rows.length})`}
+                </Text>
+              </Box>
               {listRows(group.rows)}
             </Box>
           )
@@ -856,8 +962,8 @@ type Filters = {
 
 const FILTERS_KEY = 'filters'
 
-async function saveStatusFilter($: EngineInterface, status: string): Promise<void> {
-  const filters = { ...(await readStoredFilters($)), status: parseStatusFilter(status) }
+async function saveStatusFilter($: EngineInterface, status: StatusFilter): Promise<void> {
+  const filters = { ...(await readStoredFilters($)), status }
   await $.store.set(FILTERS_KEY, filters)
   await applyFilters($, filters)
 }
@@ -879,8 +985,39 @@ async function loadFilters($: EngineInterface): Promise<void> {
   await applyFilters($, await readStoredFilters($))
 }
 
+async function setSearch($: EngineInterface, value: string): Promise<void> {
+  if ((await read($, searchQuery)) !== value) {
+    await update($, searchQuery, () => value)
+  }
+}
+
+// A row matches when each word of the search is in its title, folder, ticket or
+// note, in any case and with or without accents.
+function matchesSearch(row: Row, query: string): boolean {
+  const words = toSearchText(query)
+    .split(' ')
+    .filter(word => word !== '')
+  if (words.length === 0) {
+    return true
+  }
+  const text = toSearchText(
+    [row.title, row.folder, findTicket(row.title)?.label ?? '', row.entry?.note ?? ''].join(' '),
+  )
+
+  return words.every(word => text.includes(word))
+}
+
+function toSearchText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 async function applyFilters($: EngineInterface, filters: Filters): Promise<void> {
-  if ((await read($, statusFilter)) !== filters.status) {
+  if (JSON.stringify(await read($, statusFilter)) !== JSON.stringify(filters.status)) {
     await update($, statusFilter, () => filters.status)
   }
   if ((await read($, periodFilter)) !== filters.period) {
@@ -914,9 +1051,7 @@ async function readStoredFilters($: EngineInterface): Promise<Filters> {
     }
   }
 
-  // 0.4 kept the your-turn list as a status filter; it heads the board now.
-  const status =
-    typeof value.status === 'string' && value.status !== YOUR_TURN ? value.status : ALL_STATUSES
+  const status = readStoredStatusFilter(value.status)
 
   return {
     status,
@@ -927,15 +1062,20 @@ async function readStoredFilters($: EngineInterface): Promise<Filters> {
 
 // Refreshes the data, and redraws the board while it is shown: the ages and the
 // order move with time even when no data changed.
+// When the data was last read; a board drawn long after reads it again.
+let lastRefreshAt = 0
+
 async function refreshBoard($: EngineInterface): Promise<void> {
   await refreshAll($)
   const isShown = (await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)
   if (isShown) {
     await update($, tick, value => value + 1)
+    void refreshGitIfStale($).catch(() => undefined)
   }
 }
 
 async function refreshAll($: EngineInterface): Promise<void> {
+  lastRefreshAt = await $.clock.now()
   await loadFilters($)
   const sessions = await scanDesktop($)
   const byHost = new Map<string, Entry>()
@@ -989,6 +1129,154 @@ async function refreshAll($: EngineInterface): Promise<void> {
   }
 }
 
+// Git is asked only while a board is shown, and its answer is shared by every
+// conversation through the store for two minutes: one asks, the others read.
+const GIT_TTL_MS = 120_000
+const GIT_KEY = 'git'
+let isGitRunning = false
+
+async function refreshGitIfStale($: EngineInterface): Promise<void> {
+  if (isGitRunning) {
+    return
+  }
+  const now = await $.clock.now()
+  const stored = await $.store.get(GIT_KEY)
+  const kept =
+    typeof stored === 'object' && stored !== null ? (stored as { at?: unknown; states?: unknown }) : {}
+  const keptStates =
+    typeof kept.states === 'object' && kept.states !== null
+      ? (kept.states as Record<string, GitState>)
+      : {}
+  if (typeof kept.at === 'number' && now - kept.at < GIT_TTL_MS) {
+    if (JSON.stringify(await read($, gitStates)) !== JSON.stringify(keptStates)) {
+      await update($, gitStates, () => keptStates)
+    }
+
+    return
+  }
+  isGitRunning = true
+  try {
+    // Claimed first, so another conversation drawing its board now does not ask too.
+    await $.store.set(GIT_KEY, { at: now, states: keptStates })
+    const states = await readGitStates($, await read($, desktop))
+    await $.store.set(GIT_KEY, { at: await $.clock.now(), states })
+    if (JSON.stringify(await read($, gitStates)) !== JSON.stringify(states)) {
+      await update($, gitStates, () => states)
+    }
+  } finally {
+    isGitRunning = false
+  }
+}
+
+function gitKey(repo: string, branch: string): string {
+  return `${repo}\u0000${branch}`
+}
+
+async function readGitStates(
+  $: EngineInterface,
+  sessions: readonly DesktopSession[],
+): Promise<Record<string, GitState>> {
+  const wanted = new Map<string, { repo: string; branch: string; pr?: { state: string } }>()
+  for (const session of sessions) {
+    if (session.isArchived) {
+      continue
+    }
+    for (const one of session.branches ?? []) {
+      wanted.set(gitKey(one.repo, one.branch), { ...one, ...(session.pr === undefined ? {} : { pr: session.pr }) })
+    }
+  }
+  // One status per repository: which branch it is on, and whether files changed.
+  const heads = new Map<string, { branch: string; isDirty: boolean } | null>()
+  const states: Record<string, GitState> = {}
+  for (const [key, one] of wanted) {
+    if (!heads.has(one.repo)) {
+      heads.set(one.repo, await readHead($, one.repo))
+    }
+    states[key] = await readGitState($, one.repo, one.branch, heads.get(one.repo) ?? null, one.pr)
+  }
+
+  return states
+}
+
+async function runGit($: EngineInterface, repo: string, args: readonly string[]): Promise<string | null> {
+  const ran = await $.process.run(['git', '-C', repo, ...args], { timeoutMs: 10_000 }).catch(() => null)
+
+  return ran === null || ran.exitCode !== 0 ? null : ran.stdout.trim()
+}
+
+async function readHead(
+  $: EngineInterface,
+  repo: string,
+): Promise<{ branch: string; isDirty: boolean } | null> {
+  const branch = await runGit($, repo, ['rev-parse', '--abbrev-ref', 'HEAD'])
+  if (branch === null) {
+    return null
+  }
+  // Untracked files are left out: listing them takes seconds in a large repository.
+  const status = await runGit($, repo, ['status', '--porcelain', '--untracked-files=no'])
+
+  return { branch, isDirty: status !== null && status !== '' }
+}
+
+// Uncommitted only shows on the branch the folder is on: git has one working copy
+// a folder. Unpushed counts the commits no remote has. A merged pull request
+// settles merged; otherwise the default branch must hold the branch's tip.
+async function readGitState(
+  $: EngineInterface,
+  repo: string,
+  branch: string,
+  head: { branch: string; isDirty: boolean } | null,
+  pr: { state: string } | undefined,
+): Promise<GitState> {
+  const isDirty = head?.branch === branch && head.isDirty
+  const unpushed = Number(
+    (await runGit($, repo, ['rev-list', '--count', `refs/heads/${branch}`, '--not', '--remotes'])) ?? '0',
+  )
+  const defaultRef =
+    (await runGit($, repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'])) ?? 'origin/main'
+  const isDefault = defaultRef.replace(/^origin\//, '') === branch
+  let isMerged = true
+  if (!isDefault) {
+    const prState = pr?.state.toUpperCase()
+    if (prState === 'MERGED') {
+      isMerged = true
+    } else if (prState === 'OPEN' || prState === 'DRAFT') {
+      isMerged = false
+    } else {
+      const exists = (await runGit($, repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])) !== null
+      isMerged =
+        !exists ||
+        (await $.process
+          .run(['git', '-C', repo, 'merge-base', '--is-ancestor', `refs/heads/${branch}`, defaultRef], {
+            timeoutMs: 10_000,
+          })
+          .then(ran => ran.exitCode === 0)
+          .catch(() => true))
+    }
+  }
+
+  return { isDirty, unpushed: Number.isFinite(unpushed) ? unpushed : 0, isMerged }
+}
+
+// The row's git signs, over every branch it committed on.
+function describeGit(
+  row: Row,
+  git: Readonly<Record<string, GitState>>,
+): { mark: string; word: string }[] {
+  const states = (row.branches ?? []).flatMap(one => {
+    const state = git[gitKey(one.repo, one.branch)]
+
+    return state === undefined ? [] : [state]
+  })
+  const unpushed = states.reduce((sum, state) => sum + state.unpushed, 0)
+
+  return [
+    ...(states.some(state => state.isDirty) ? [{ mark: '✎', word: config.texts.uncommitted }] : []),
+    ...(unpushed > 0 ? [{ mark: `↑${unpushed}`, word: config.texts.unpushed }] : []),
+    ...(states.some(state => !state.isMerged) ? [{ mark: '⑂', word: config.texts.unmerged }] : []),
+  ]
+}
+
 // The desktop panes only follow https links, so the app's own link is opened by the system.
 async function openConversation($: EngineInterface, hostId: string | undefined): Promise<void> {
   if (hostId === undefined) {
@@ -1030,6 +1318,7 @@ async function openUrl($: EngineInterface, url: string): Promise<boolean> {
 // One line of the board: a desktop conversation, or a status kept for a
 // conversation the desktop app does not list.
 type Row = {
+  branches?: { repo: string; branch: string }[]
   key: string
   hostId?: string
   title: string
@@ -1149,6 +1438,7 @@ function parseDesktopSession(text: string): DesktopSession | null {
       : [],
     ...parseTurnSummary(record.postTurnSummary),
     ...parsePullRequest(record.prs),
+    ...parseWrittenBranches(record.writtenBranches),
   }
 }
 
@@ -1169,6 +1459,22 @@ function parseTurnSummary(value: unknown): Pick<DesktopSession, 'summary' | 'att
     ...(text === undefined || text === '' ? {} : { summary: text }),
     ...(attention === undefined ? {} : { attention }),
   }
+}
+
+// The branches the conversation committed on, each as its repository and name.
+function parseWrittenBranches(value: unknown): Pick<DesktopSession, 'branches'> {
+  if (!Array.isArray(value)) {
+    return {}
+  }
+  const branches = value.flatMap(item => {
+    const [repo, branch] = typeof item === 'string' ? item.split('\u0000') : []
+
+    return repo !== undefined && branch !== undefined && repo !== '' && branch !== ''
+      ? [{ repo, branch }]
+      : []
+  })
+
+  return branches.length > 0 ? { branches } : {}
 }
 
 // The last pull request the conversation worked on.
@@ -1214,6 +1520,7 @@ function buildRows(sessions: readonly DesktopSession[], entries: readonly Entry[
       summary: session.summary,
       attention: session.attention,
       pr: session.pr,
+      branches: session.branches,
     })
   }
   const hostIds = new Set(sessions.map(session => session.hostId))
@@ -1629,8 +1936,46 @@ function toWord(text: string): string {
     .replace(/[\s_]+/g, '-')
 }
 
-function parseStatusFilter(value: string): StatusFilter {
-  return value === NO_STATUS || findStatus(value)?.id === value ? value : ALL_STATUSES
+// The status filter as kept: every status, or the ids of the checked groups.
+// Up to 0.7 it was one id; 0.4's your-turn value means every status now.
+function readStoredStatusFilter(value: unknown): StatusFilter {
+  if (Array.isArray(value)) {
+    const ids = value.filter((id): id is string => typeof id === 'string')
+
+    return ids.length > 0 ? ids : ALL_STATUSES
+  }
+  if (typeof value === 'string' && value !== ALL_STATUSES && value !== YOUR_TURN) {
+    return [value]
+  }
+
+  return ALL_STATUSES
+}
+
+// The groups the filter shows, among those the options list now.
+function resolveStatusFilter(filter: StatusFilter): string[] {
+  const known = [...statuses().map(status => status.id), NO_STATUS]
+  const ids = filter === ALL_STATUSES ? [] : filter.filter(id => known.includes(id))
+
+  return ids.length > 0 ? ids : statuses().map(status => status.id)
+}
+
+// The filter after a choice in the status picker: check all, or toggle one group.
+function pickStatusFilter(selected: readonly string[], value: string): StatusFilter {
+  if (value === ALL_STATUSES) {
+    return ALL_STATUSES
+  }
+  if (!value.startsWith(STATUS_TOGGLE)) {
+    return [...selected]
+  }
+  const id = value.slice(STATUS_TOGGLE.length)
+  const next = selected.includes(id) ? selected.filter(one => one !== id) : [...selected, id]
+  if (next.length === 0) {
+    return [...selected]
+  }
+  const isEveryStatus =
+    !next.includes(NO_STATUS) && statuses().every(status => next.includes(status.id))
+
+  return isEveryStatus ? ALL_STATUSES : next
 }
 
 function parsePeriod(value: string): Period {
