@@ -1,0 +1,11 @@
+{
+  "name": "docket",
+  "owner": { "name": "spoulin" },
+  "plugins": [
+    {
+      "name": "docket",
+      "source": "./",
+      "description": "A status and remote and personal flags for each conversation, with a board of all of them"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "name": "docket",
+  "version": "0.2.0",
+  "description": "A status and remote and personal flags for each conversation, with a board of all of them",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "Language of the band and the board.",
+      "options": ["en", "fr"],
+      "default": "en"
+    },
+    "ticketLinks": {
+      "type": "string",
+      "title": "Ticket links",
+      "description": "JSON list of rules that turn a ticket named in a title into a link: [{\"pattern\": \"\\\\b(ABC-\\\\d+)\\\\b\", \"url\": \"https://tracker.example.com/browse/{id}\", \"label\": \"{id}\", \"project\": \"my-repo\"}]. {id} is the pattern's first group. url must start with https://. label, project and uppercase (true to write {id} in capitals) are optional.",
+      "default": ""
+    },
+    "projectColors": {
+      "type": "string",
+      "title": "Project colors",
+      "description": "JSON map from a project (folder name, or \"perso\" for personal conversations) to a hue from 0 to 359, for example {\"my-repo\": 212}. Other projects get a hue from their name.",
+      "default": ""
+    }
+  }
+}
