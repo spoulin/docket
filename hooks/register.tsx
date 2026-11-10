@@ -157,6 +157,7 @@ const config: {
   statuses: StatusDef[]
   flags: FlagDef[]
   statusControl: StatusControl
+  filters: string[] | undefined
 } = {
   texts: TEXTS.en,
   tickets: [],
@@ -164,6 +165,18 @@ const config: {
   statuses: [...TEXTS.en.statuses],
   flags: [...TEXTS.en.flags],
   statusControl: 'auto',
+  filters: undefined,
+}
+
+// The board's filters by id: the status, the period, then each flag by its id.
+const STATUS_FILTER_ID = 'status'
+const PERIOD_FILTER_ID = 'period'
+
+// The filters the board shows, in order: the `filters` option, or every one.
+function filterIds(): string[] {
+  const known = [STATUS_FILTER_ID, PERIOD_FILTER_ID, ...flags().map(flag => flag.id)]
+
+  return config.filters?.filter(id => known.includes(id)) ?? known
 }
 
 // How the band shows the status: a button per status, a picker, or one button
@@ -480,11 +493,16 @@ export const register: Register = (on, options) => {
     const rows = buildRows(await read($, desktop), await read($, all))
     await read($, tick)
     const chosen = await read($, flagFilters)
-    const flagFilter = (flag: FlagDef): FlagFilter => chosen[flag.id] ?? 'tous'
-    const onlyStatus = parseStatusFilter(await read($, statusFilter))
+    // A filter the options hide keeps every row, whatever was chosen before.
+    const isVisible = (id: string) => filterIds().includes(id)
+    const flagFilter = (flag: FlagDef): FlagFilter =>
+      (isVisible(flag.id) ? chosen[flag.id] : undefined) ?? 'tous'
+    const onlyStatus = isVisible(STATUS_FILTER_ID)
+      ? parseStatusFilter(await read($, statusFilter))
+      : ALL_STATUSES
     const hereId = await $.session.id()
     const now = await $.clock.now()
-    const period = await read($, periodFilter)
+    const period = isVisible(PERIOD_FILTER_ID) ? await read($, periodFilter) : 'tout'
     const since = findPeriodStart(period, now)
     const shown = rows.filter(
       row =>
@@ -589,6 +607,7 @@ export const register: Register = (on, options) => {
       ])
     // Each picker with its label above it, laid out in two columns, row by row.
     const labelled = (key: string, label: string, node: JSX.Element) => ({
+      id: key,
       node: (
         <Box key={`picker-${key}`} flexDirection="column">
           <Text dimColor size="caption">
@@ -598,12 +617,12 @@ export const register: Register = (on, options) => {
         </Box>
       ),
     })
-    const pickers =
+    const allPickers =
       Select === undefined
         ? []
         : [
             labelled(
-              'status',
+              STATUS_FILTER_ID,
               t.status,
               <Select
                 key="status-filter"
@@ -613,7 +632,7 @@ export const register: Register = (on, options) => {
               />,
             ),
             labelled(
-              'period',
+              PERIOD_FILTER_ID,
               t.period,
               <Select
                 key="period-filter"
@@ -624,7 +643,7 @@ export const register: Register = (on, options) => {
             ),
             ...flags().map(flag =>
               labelled(
-                `flag-${flag.id}`,
+                flag.id,
                 flag.label,
                 <Select
                   key={`flag-filter-${flag.id}`}
@@ -635,6 +654,59 @@ export const register: Register = (on, options) => {
               ),
             ),
           ]
+    // A surface without pickers gets a row of buttons per filter, in the same order.
+    const fallbackRows: Record<string, JSX.Element> = {
+      [STATUS_FILTER_ID]: (
+            <Box key="fallback-status" flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
+              {statusOptions.map(option => (
+                <Button
+                  key={`only-${option.value}`}
+                  label={option.label}
+                  variant={onlyStatus === option.value ? 'primary' : undefined}
+                  dimColor={onlyStatus !== option.value}
+                  onPress={() => saveStatusFilter($, option.value)}
+                />
+              ))}
+            </Box>
+      ),
+      [PERIOD_FILTER_ID]: (
+            <Box key="fallback-period" flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
+              {periodOptions.map(option => (
+                <Button
+                  key={`period-${option.value}`}
+                  label={option.label}
+                  variant={period === option.value ? 'primary' : undefined}
+                  dimColor={period !== option.value}
+                  onPress={() => savePeriod($, option.value)}
+                />
+              ))}
+            </Box>
+      ),
+      ...Object.fromEntries(
+        flags().map(flag => [
+          flag.id,
+
+              <Box
+                key={`flag-filters-${flag.id}`}
+                flexDirection="row"
+                flexWrap="wrap"
+                alignItems="center"
+                gap={1}
+              >
+                {flagOptions(flag).map(option => (
+                  <Button
+                    key={`flag-${flag.id}-${option.value}`}
+                    label={option.label}
+                    variant={option.value === flagFilter(flag) ? 'primary' : undefined}
+                    dimColor={option.value !== flagFilter(flag)}
+                    onPress={() => saveFlagFilter($, flag.id, option.value)}
+                  />
+                ))}
+              </Box>
+        ]),
+      ),
+    }
+    const pickers = filterIds().flatMap(id => allPickers.filter(picker => picker.id === id))
     // Refresh has a row of its own under the pickers, centered: a button keeps its own width.
     const tools = (
       <Box key="tools" flexDirection="row" justifyContent="center" marginTop={1}>
@@ -661,47 +733,7 @@ export const register: Register = (on, options) => {
         <Box key="filters" flexDirection="column" borderStyle="round" borderColor="promptBorder" paddingX={1}>
           {Select === undefined ? (
           <Box flexDirection="column" gap={1}>
-            <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-              {statusOptions.map(option => (
-                <Button
-                  key={`only-${option.value}`}
-                  label={option.label}
-                  variant={onlyStatus === option.value ? 'primary' : undefined}
-                  dimColor={onlyStatus !== option.value}
-                  onPress={() => saveStatusFilter($, option.value)}
-                />
-              ))}
-            </Box>
-            <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-              {periodOptions.map(option => (
-                <Button
-                  key={`period-${option.value}`}
-                  label={option.label}
-                  variant={period === option.value ? 'primary' : undefined}
-                  dimColor={period !== option.value}
-                  onPress={() => savePeriod($, option.value)}
-                />
-              ))}
-            </Box>
-            {flags().map(flag => (
-              <Box
-                key={`flag-filters-${flag.id}`}
-                flexDirection="row"
-                flexWrap="wrap"
-                alignItems="center"
-                gap={1}
-              >
-                {flagOptions(flag).map(option => (
-                  <Button
-                    key={`flag-${flag.id}-${option.value}`}
-                    label={option.label}
-                    variant={option.value === flagFilter(flag) ? 'primary' : undefined}
-                    dimColor={option.value !== flagFilter(flag)}
-                    onPress={() => saveFlagFilter($, flag.id, option.value)}
-                  />
-                ))}
-              </Box>
-            ))}
+            {filterIds().map(id => fallbackRows[id])}
             {tools}
           </Box>
         ) : (
@@ -1329,6 +1361,19 @@ function applyOptions(options: Readonly<Record<string, unknown>>): void {
   config.statuses = parseStatuses(options.statuses) ?? [...config.texts.statuses]
   config.flags = parseFlags(options.flags, config.statuses) ?? [...config.texts.flags]
   config.statusControl = STATUS_CONTROLS.find(one => one === options.statusControl) ?? 'auto'
+  config.filters = parseFilterOrder(options.filters)
+}
+
+// The filter ids the options list, in order; a repeated id counts once.
+// An empty or unreadable list keeps every filter.
+function parseFilterOrder(value: unknown): string[] | undefined {
+  const list = parseJson(value)
+  if (!Array.isArray(list)) {
+    return undefined
+  }
+  const ids = [...new Set(list.map(parseId).filter((id): id is string => id !== undefined))]
+
+  return ids.length > 0 ? ids : undefined
 }
 
 // An id is a short word: letters, digits and dashes.
@@ -1384,7 +1429,9 @@ function parseFlags(value: unknown, statusDefs: readonly StatusDef[]): FlagDef[]
     const isTaken =
       statusDefs.some(one => one.id === id) ||
       defs.some(one => one.id === id) ||
-      (id !== undefined && RESERVED_IDS.includes(id))
+      (id !== undefined && RESERVED_IDS.includes(id)) ||
+      id === STATUS_FILTER_ID ||
+      id === PERIOD_FILTER_ID
     if (id === undefined || isTaken) {
       continue
     }

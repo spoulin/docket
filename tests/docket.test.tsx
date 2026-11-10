@@ -918,3 +918,32 @@ test(
     await ui.unmount()
   },
 )
+
+test(
+  'the filters option sets the order of the pickers and hides the others',
+  { options: { language: 'fr', filters: '["status", "perso", "period"]' } },
+  async ($, on) => {
+    mockEngine(
+      on,
+      // A remote filter chosen before it was hidden no longer filters.
+      { filters: { status: 'aucun', flags: { remote: 'oui' } } },
+      { 'local_one.json': desktopRecord('one', 'Première') },
+    )
+
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    await $.command.run({ command: 'docket', args: '' })
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const left = await ui.find({ type: 'Box', key: 'filter-column-0' } as never)
+    const right = await ui.find({ type: 'Box', key: 'filter-column-1' } as never)
+    const keys = (box: unknown) =>
+      JSON.stringify(box)
+        .match(/"key":"(status|period|flag)-filter[^"]*"/g)
+        ?.map(found => found.slice(7, -1))
+    // Row by row: status | type, then period alone.
+    expect(keys(left)).toEqual(['status-filter', 'period-filter'])
+    expect(keys(right)).toEqual(['flag-filter-perso'])
+    expect(await ui.find({ type: 'Select', key: 'flag-filter-remote' })).toBeFalsy()
+    expect(await ui.find({ type: 'Markdown', key: 'open-one' })).toBeTruthy()
+    await ui.unmount()
+  },
+)

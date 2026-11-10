@@ -60,6 +60,7 @@ Set them when you install, or later in `/config`.
 | `statuses` | A JSON list of the statuses, in order. | in progress, waiting, done, recycled |
 | `flags` | A JSON list of yes-or-no flags. `[]` for none. | remote, personal |
 | `statusControl` | How the band shows the status: `buttons`, `dropdown`, `cycle` (one button that moves to the next status), or `auto`. | `auto`: buttons up to 5 statuses, a dropdown past that |
+| `filters` | A JSON list of the board's filters, in order: `status`, `period` and flag ids. A filter left out is hidden. | status, period, then every flag |
 | `ticketLinks` | A JSON list of rules that turn a ticket named in a title into a link. | none |
 | `projectColors` | A JSON map from a project to a hue from 0 to 359. | a hue from the project's name |
 
@@ -99,6 +100,16 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 - `off` (optional): the filter's "no". Default: "Not" and the label.
 - A flag listed by its id alone (`{ "id": "perso" }`) keeps its default words.
 - Each flag gets a check box in the band, a filter on the board, and a word in each row where it is set.
+
+### Board filters
+
+```json
+["status", "perso", "period", "remote"]
+```
+
+- The board lays the filters in two columns, row by row: this list gives status and kind on the first row, period and remote on the second.
+- A filter left out of the list is hidden, and what it had chosen stops filtering.
+- A flag cannot have the id `status` or `period`.
 
 ### Ticket links
 

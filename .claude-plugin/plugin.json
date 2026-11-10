@@ -1,6 +1,6 @@
 {
   "name": "docket",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "A status and remote and personal flags for each conversation, with a board of all of them",
   "author": {
     "name": "spoulin",
@@ -55,6 +55,12 @@
         "cycle"
       ],
       "default": "auto"
+    },
+    "filters": {
+      "type": "string",
+      "title": "Board filters",
+      "description": "JSON list of the board's filters, in order, filled row by row in two columns: \"status\", \"period\" and flag ids, for example [\"status\", \"perso\", \"period\", \"remote\"]. A filter left out is hidden and filters nothing. Empty: status, period, then every flag.",
+      "default": ""
     }
   }
 }
