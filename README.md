@@ -11,6 +11,8 @@ Each conversation gets a status and two flags, and a board lists all of them.
 - A click on a title opens that conversation.
 - Each conversation gets a small glyph, colored by project, to spot it at a glance.
 - Titles that name a ticket get a link to it, with rules you set.
+- The band counts the other conversations that wait on you (⚠️ 2 your turn); a click shows them on the board.
+- A short note per conversation says why it waits or what comes next.
 
 > [!WARNING]
 > In the desktop app, the board reads the app's own conversation records and opens conversations through the app's own links.
@@ -39,6 +41,7 @@ In the desktop app, where `/plugin` does not run: click + next to the prompt box
 - `/docket` opens the board.
 - `/docket <status>` sets the status, by its id or its label: `/docket done`, `/docket waiting`.
 - `/docket <flag> [yes|no]` sets a flag: `/docket remote yes`. With no value, it toggles.
+- `/docket note <text>` writes the conversation's note, shown in the band and on the board. `/docket note` alone clears it.
 - The band above the prompt does the same with buttons.
 
 A conversation gets the first status when you send its first message.
@@ -72,6 +75,7 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 ```
 
 - `id`: letters, digits and dashes. The store keeps it, so change a label freely, not an id.
+- `tous`, `aucun`, `a-toi` and `note` are taken by the board's filter and the note command.
 - `label`: what the band and the board show.
 - The first status is the one a new conversation gets.
 - A conversation whose status you remove shows under "No status". Add the id back and it returns.
@@ -86,7 +90,7 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 ]
 ```
 
-- `id`: letters, digits and dashes. It cannot be a status id.
+- `id`: letters, digits and dashes. It cannot be a status id, nor `tous`, `aucun`, `a-toi` or `note`.
 - `label`: the name of the flag's filter on the board.
 - `on` and `off` (optional): what the band button, the filter and the row say in each state. Default: the label, and "Not" and the label.
 - A flag listed by its id alone (`{ "id": "perso" }`) keeps its default words.

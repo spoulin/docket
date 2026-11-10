@@ -19,12 +19,16 @@ const SEPARATOR_SVG =
 const TEXTS = {
   en: {
     commandDescription: (statusIds: string, flagIds: string) =>
-      `Status: ${statusIds}; ${flagIds} [yes|no]; alone, opens the board`,
+      `Status: ${statusIds}; ${flagIds} [yes|no]; note <text>; alone, opens the board`,
     boardOpened: 'Status board opened.',
     unknownFlag: (value: string) => `Unknown value "${value}". Values: yes, no.`,
     unknownStatus: (value: string, ids: string) => `Unknown status "${value}". Values: ${ids}.`,
     statusSet: (label: string) => `Status: ${label}.`,
     flagSet: (label: string) => `${label}.`,
+    noteSaved: 'Note saved.',
+    noteCleared: 'Note cleared.',
+    yourTurnBand: (count: number) => `⚠️ ${count} your turn`,
+    yourTurn: (count: number) => `⚠️ Your turn (${count})`,
     saveFailed: 'The conversation status could not be saved.',
     status: 'Status',
     board: 'Board',
@@ -63,12 +67,16 @@ const TEXTS = {
   },
   fr: {
     commandDescription: (statusIds: string, flagIds: string) =>
-      `Statut : ${statusIds}; ${flagIds} [oui|non]; seul, ouvre le tableau`,
+      `Statut : ${statusIds}; ${flagIds} [oui|non]; note <texte>; seul, ouvre le tableau`,
     boardOpened: 'Tableau des statuts ouvert.',
     unknownFlag: (value: string) => `Valeur inconnue "${value}". Valeurs : oui, non.`,
     unknownStatus: (value: string, ids: string) => `Statut inconnu "${value}". Valeurs : ${ids}.`,
     statusSet: (label: string) => `Statut : ${label}.`,
     flagSet: (label: string) => `${label}.`,
+    noteSaved: 'Note enregistrée.',
+    noteCleared: 'Note effacée.',
+    yourTurnBand: (count: number) => `⚠️ ${count} à toi`,
+    yourTurn: (count: number) => `⚠️ À toi (${count})`,
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     status: 'Statut',
     board: 'Tableau',
@@ -139,6 +147,11 @@ const config: {
 // The status filter's own values, kept apart from the status ids.
 const ALL_STATUSES = 'tous'
 const NO_STATUS = 'aucun'
+// Rows whose conversation waits on the person, whatever their status.
+const YOUR_TURN = 'a-toi'
+// Ids the statuses and flags cannot take: the filter's own values, and the note command.
+const RESERVED_IDS: readonly string[] = [ALL_STATUSES, NO_STATUS, YOUR_TURN, 'note']
+const NOTE_MAX = 200
 const FLAG_FILTERS: readonly FlagFilter[] = ['tous', 'oui', 'non']
 // Past this many statuses the band draws a picker instead of a button for each.
 const MAX_STATUS_BUTTONS = 5
@@ -273,6 +286,14 @@ export const register: Register = (on, options) => {
       return { text: t.boardOpened }
     }
 
+    const note = /^note(?:\s+([\s\S]*))?$/i.exec(args)
+    if (note !== null) {
+      const text = (note[1] ?? '').replace(/\s+/g, ' ').trim()
+      await setNote($, text)
+
+      return { text: text === '' ? t.noteCleared : t.noteSaved }
+    }
+
     const [word = '', value, ...rest] = args.split(/\s+/)
     const flag = findFlag(word)
     if (flag !== undefined && rest.length === 0) {
@@ -315,6 +336,10 @@ export const register: Register = (on, options) => {
     const Select =
       'Select' in elements && statuses().length > MAX_STATUS_BUTTONS ? elements.Select : undefined
     const isKnown = status !== null && findStatus(status)?.id === status
+    const hostId = await findHostId($)
+    const waiting = (await read($, desktop)).filter(
+      session => session.attention === 'blocked' && !session.isArchived && session.hostId !== hostId,
+    ).length
 
     return (
       <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
@@ -365,6 +390,22 @@ export const register: Register = (on, options) => {
             await $.ui.open({ id: PANE, title: t.paneTitle })
           }}
         />
+        {waiting > 0 && (
+          <Button
+            key="your-turn"
+            label={t.yourTurnBand(waiting)}
+            onPress={async () => {
+              await refreshAll($)
+              await saveStatusFilter($, YOUR_TURN)
+              await $.ui.open({ id: PANE, title: t.paneTitle })
+            }}
+          />
+        )}
+        {entry?.note !== undefined && (
+          <Text dimColor wrap="truncate-end">
+            📝 {entry.note}
+          </Text>
+        )}
       </Box>
     )
   })
@@ -395,21 +436,28 @@ export const register: Register = (on, options) => {
     const hereId = await $.session.id()
     const now = await $.clock.now()
     const shown = rows.filter(row => flags().every(flag => matchesFlag(row, flag, flagFilter(flag))))
-    const withStatus = shown.filter(row => hasStatus(row))
-    const withoutStatus = shown.filter(row => !hasStatus(row))
-    const groups: { id: string; label: string; rows: Row[] }[] = [
+    const isYourTurn = (row: Row) => row.attention === 'blocked' && row.key !== hereId
+    const yourTurn = shown.filter(isYourTurn)
+    const groupRows = (list: readonly Row[]): { id: string; label: string; rows: Row[] }[] => [
       ...statuses().map(status => ({
         id: status.id,
         label: status.label,
-        rows: withStatus.filter(row => row.entry?.status === status.id),
+        rows: list.filter(row => hasStatus(row) && row.entry?.status === status.id),
       })),
-      { id: NO_STATUS, label: t.noStatus, rows: withoutStatus },
+      { id: NO_STATUS, label: t.noStatus, rows: list.filter(row => !hasStatus(row)) },
     ]
+    const counted = groupRows(shown)
+    const groups = onlyStatus === YOUR_TURN ? groupRows(yourTurn) : counted
     const isShown = (id: string) =>
-      onlyStatus === id || (onlyStatus === ALL_STATUSES && id !== NO_STATUS)
+      onlyStatus === id ||
+      onlyStatus === YOUR_TURN ||
+      (onlyStatus === ALL_STATUSES && id !== NO_STATUS)
     const statusOptions = [
-      { value: ALL_STATUSES, label: t.all(withStatus.length) },
-      ...groups.map(group => ({
+      { value: ALL_STATUSES, label: t.all(shown.filter(row => hasStatus(row)).length) },
+      ...(yourTurn.length > 0 || onlyStatus === YOUR_TURN
+        ? [{ value: YOUR_TURN, label: t.yourTurn(yourTurn.length) }]
+        : []),
+      ...counted.map(group => ({
         value: group.id,
         label: `${group.label} (${group.rows.length})`,
       })),
@@ -527,6 +575,11 @@ export const register: Register = (on, options) => {
                         {row.key === hereId ? `${t.here} · ${describe(row, now)}` : describe(row, now)}
                       </Text>
                     </Box>
+                    {row.entry?.note !== undefined && (
+                      <Text size="footnote" wrap="wrap">
+                        📝 {row.entry.note}
+                      </Text>
+                    )}
                     {row.summary !== undefined && (
                       <Text
                         size="footnote"
@@ -559,6 +612,12 @@ export const register: Register = (on, options) => {
 async function setStatus($: EngineInterface, status: string): Promise<void> {
   const entry = await ensureEntry($)
   await saveEntry($, { ...entry, status })
+}
+
+async function setNote($: EngineInterface, text: string): Promise<void> {
+  const { note: _cleared, ...entry } = await ensureEntry($)
+  const note = text.length > NOTE_MAX ? `${text.slice(0, NOTE_MAX - 1)}…` : text
+  await saveEntry($, note === '' ? entry : { ...entry, note })
 }
 
 async function setFlag($: EngineInterface, id: string, isOn: boolean): Promise<void> {
@@ -1141,7 +1200,7 @@ function parseStatuses(value: unknown): StatusDef[] | undefined {
   for (const item of list) {
     const record = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
     const id = parseId(record.id)
-    const isReserved = id === ALL_STATUSES || id === NO_STATUS
+    const isReserved = id !== undefined && RESERVED_IDS.includes(id)
     if (id === undefined || isReserved || defs.some(one => one.id === id)) {
       continue
     }
@@ -1167,7 +1226,10 @@ function parseFlags(value: unknown, statusDefs: readonly StatusDef[]): FlagDef[]
   for (const item of list) {
     const record = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
     const id = parseId(record.id)
-    const isTaken = statusDefs.some(one => one.id === id) || defs.some(one => one.id === id)
+    const isTaken =
+      statusDefs.some(one => one.id === id) ||
+      defs.some(one => one.id === id) ||
+      (id !== undefined && RESERVED_IDS.includes(id))
     if (id === undefined || isTaken) {
       continue
     }
@@ -1367,7 +1429,9 @@ function toWord(text: string): string {
 }
 
 function parseStatusFilter(value: string): StatusFilter {
-  return value === NO_STATUS || findStatus(value)?.id === value ? value : ALL_STATUSES
+  const isOwn = value === NO_STATUS || value === YOUR_TURN
+
+  return isOwn || findStatus(value)?.id === value ? value : ALL_STATUSES
 }
 
 function parseFlagFilter(value: string): FlagFilter {
@@ -1424,6 +1488,7 @@ function readEntry(value: unknown): Entry | null {
     folder: entry.folder as string,
     status: entry.status as string | null,
     flags: flagsSet,
+    ...(typeof entry.note === 'string' && entry.note !== '' ? { note: entry.note } : {}),
     updatedAt: entry.updatedAt as number,
   }
 }

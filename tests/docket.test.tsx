@@ -698,3 +698,72 @@ test('a turn of this conversation redraws the board at once', FR, async ($, on) 
   expect(await ui.find({ type: 'Markdown', key: 'open-two' })).toBeTruthy()
   await ui.unmount()
 })
+
+test('the band counts the conversations that wait on the person', FR, async ($, on) => {
+  const store = mockEngine(
+    on,
+    { filters: { status: 'tous', flags: {} } },
+    {
+      'local_here.json': desktopRecord('here', 'Ici', false, {
+        postTurnSummary: { status_category: 'blocked', needs_action: 'Réponds-moi' },
+      }),
+      'local_a.json': desktopRecord('a', 'Première', false, {
+        postTurnSummary: { status_category: 'blocked', needs_action: 'Choisis une option' },
+      }),
+      'local_b.json': desktopRecord('b', 'Deuxième', false, {
+        postTurnSummary: { status_category: 'blocked', needs_action: 'Valide la PR' },
+      }),
+      'local_c.json': desktopRecord('c', 'Troisième', true, {
+        postTurnSummary: { status_category: 'blocked', needs_action: 'Archivée' },
+      }),
+      'local_d.json': desktopRecord('d', 'Quatrième'),
+    },
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // This conversation and the archived one are not counted.
+  expect((await band.find({ type: 'Button', key: 'your-turn' }))?.props.label).toBe('⚠️ 2 à toi')
+  await band.press({ key: 'your-turn' })
+  await band.unmount()
+  expect(store.get('filters')).toMatchObject({ status: 'a-toi' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const statusFilter = await ui.find({ type: 'Select', key: 'status-filter' })
+  expect(statusFilter?.props.value).toBe('a-toi')
+  expect(statusFilter?.props.options.find(option => option.value === 'a-toi')?.label).toBe(
+    '⚠️ À toi (2)',
+  )
+  expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
+  expect(await ui.find({ type: 'Markdown', key: 'open-b' })).toBeTruthy()
+  expect(await ui.find({ type: 'Markdown', key: 'open-d' })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('a note says why a conversation waits', FR, async ($, on) => {
+  const store = mockEngine(
+    on,
+    { filters: { status: 'tous', flags: {} } },
+    { 'local_here.json': desktopRecord('here', 'Ici') },
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Préparer la QA' })
+  const saved = await $.command.run({ command: 'docket', args: 'note attendre   le retour de Yannick' })
+  expect(saved.text).toBe('Note enregistrée.')
+  expect(store.get('host:local_here')).toMatchObject({
+    status: 'en-cours',
+    note: 'attendre le retour de Yannick',
+  })
+
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await band.find({ type: 'Text', text: /📝 attendre le retour de Yannick/ })).toBeTruthy()
+  await band.unmount()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /📝 attendre le retour de Yannick/ })).toBeTruthy()
+  await ui.unmount()
+
+  const cleared = await $.command.run({ command: 'docket', args: 'note' })
+  expect(cleared.text).toBe('Note effacée.')
+  expect(store.get('host:local_here')).not.toHaveProperty('note')
+})

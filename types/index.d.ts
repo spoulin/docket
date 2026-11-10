@@ -1,7 +1,8 @@
 // A status id from the `statuses` option, or one of the defaults.
 export type Status = string
 
-// A status id, 'tous' for every status, or 'aucun' for conversations with none.
+// A status id, 'tous' for every status, 'aucun' for conversations with none,
+// or 'a-toi' for conversations that wait on the person.
 export type StatusFilter = string
 
 // What a flag's filter keeps: every row, the rows with the flag set, or without it.
@@ -16,6 +17,8 @@ export type Entry = {
   status: Status | null
   // The flags set on the conversation, by flag id; a flag not set is left out.
   flags: Record<string, boolean>
+  // A free line the person wrote about the conversation: why it waits, what is next.
+  note?: string
   updatedAt: number
 }
 
