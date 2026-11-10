@@ -435,7 +435,7 @@ test('a row shows the last turn summary, what is asked and the pull request', FR
   expect(await ui.find({ type: 'Text', text: /^Récap QA publié$/ })).toBeTruthy()
   // A plain summary hangs behind an arrow.
   expect(await ui.find({ type: 'Box', key: 'summary-done' } as never)).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: '↳\u00a0' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: '▸\u00a0' })).toBeTruthy()
   await ui.unmount()
 })
 
@@ -764,11 +764,11 @@ test('the band counts the conversations that wait on the person', FR, async ($, 
   expect(await ui.find({ type: 'Text', text: /^⚠️ À toi/ })).toBeFalsy()
   // The section and the filters each sit in a frame: orange for what waits, the theme's for the rest.
   expect((await ui.find({ type: 'Box', key: 'your-turn' } as never))?.props).toMatchObject({
-    borderStyle: 'round',
+    borderStyle: 'single',
     borderColor: 'warning',
   })
   expect((await ui.find({ type: 'Box', key: 'filters' } as never))?.props).toMatchObject({
-    borderStyle: 'round',
+    borderStyle: 'single',
     borderColor: 'promptBorder',
   })
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()

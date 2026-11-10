@@ -647,7 +647,7 @@ export const register: Register = (on, options) => {
                       // The last turn's summary hangs from the lines above, behind an arrow.
                       <Box key={`summary-${row.key}`} flexDirection="row">
                         <Text size="footnote" weight="bold">
-                          {'↳\u00a0'}
+                          {'▸\u00a0'}
                         </Text>
                         <Text size="footnote" dimColor wrap="truncate-end">
                           {row.summary}
@@ -794,14 +794,14 @@ export const register: Register = (on, options) => {
             key="your-turn"
             flexDirection="column"
             gap={1}
-            borderStyle="round"
+            borderStyle="single"
             borderColor="warning"
             paddingX={1}
           >
             {listRows(yourTurn)}
           </Box>
         )}
-        <Box key="filters" flexDirection="column" borderStyle="round" borderColor="promptBorder" paddingX={1}>
+        <Box key="filters" flexDirection="column" borderStyle="single" borderColor="promptBorder" paddingX={1}>
           {'Input' in elements && (
             <Box key="search-row" flexDirection="column" alignItems="stretch" width="100%">
               <elements.Input
