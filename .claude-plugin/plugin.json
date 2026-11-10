@@ -1,6 +1,6 @@
 {
   "name": "docket",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "description": "A status and remote and personal flags for each conversation, with a board of all of them",
   "author": {
     "name": "spoulin",
@@ -43,6 +43,18 @@
       "title": "Flags",
       "description": "JSON list of yes-or-no flags, each a band button and a board filter: [{\"id\": \"client\", \"label\": \"Client\", \"on\": \"Client\", \"off\": \"Internal\"}]. on and off are optional. Empty: remote and personal. [] for no flag.",
       "default": ""
+    },
+    "statusControl": {
+      "type": "string",
+      "title": "Status control",
+      "description": "How the band shows the status: buttons (one per status), dropdown (a picker), cycle (one button that moves to the next status on each press), or auto (buttons up to 5 statuses, a dropdown past that).",
+      "options": [
+        "auto",
+        "buttons",
+        "dropdown",
+        "cycle"
+      ],
+      "default": "auto"
     }
   }
 }

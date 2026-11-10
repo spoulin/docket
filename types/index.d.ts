@@ -1,9 +1,11 @@
 // A status id from the `statuses` option, or one of the defaults.
 export type Status = string
 
-// A status id, 'tous' for every status, 'aucun' for conversations with none,
-// or 'a-toi' for conversations that wait on the person.
+// A status id, 'tous' for every status, or 'aucun' for conversations with none.
 export type StatusFilter = string
+
+// How far back the statuses tab goes, by last activity.
+export type Period = 'tout' | '1h' | '2h' | '3h' | '6h' | 'today' | '7d' | '30d'
 
 // What a flag's filter keeps: every row, the rows with the flag set, or without it.
 export type FlagFilter = 'tous' | 'oui' | 'non'
@@ -45,6 +47,7 @@ declare module 'claude-code' {
       all: Shaped<Entry[]>
       desktop: Shaped<DesktopSession[]>
       statusFilter: StatusFilter
+      period: Period
       // By flag id; a flag left out keeps every row.
       flagFilters: Record<string, FlagFilter>
       // Bumped on each automatic refresh while the board is shown, so its ages redraw.

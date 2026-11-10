@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: 'Statuts',
+    title: '🏷️ Docket',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -47,6 +47,8 @@ const FR = {
     projectColors: JSON.stringify({ 'my-app': 212, 'other-app': 24, 'third-app': 145, perso: 285 }),
   },
 }
+
+const CYCLE = { options: { ...FR.options, statusControl: 'cycle' } }
 
 let clock: { advance: (ms: number) => Promise<void> }
 
@@ -115,7 +117,7 @@ function mockEngine(
   on('store.keys', () => ({ value: [...store.keys()] }))
   clock = mock.clock(on, { now: 3_600_000 })
   on('ui.panes', () => ({
-    value: [{ id: 'docket', title: 'Statuts', isShown: true, isFocused: false, isPlaced: true }],
+    value: [{ id: 'docket', title: '🏷️ Docket', isShown: true, isFocused: false, isPlaced: true }],
   }))
   on('command.register', (_, e) => ({ value: { command: e.name } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -137,31 +139,33 @@ test('the first prompt files the conversation as in progress', FR, async ($, on)
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
+    // Four statuses: one button each, the current one marked.
     expect((await ui.find({ type: 'Button', key: 'status-en-cours' }))?.props.variant).toBe(
       'primary',
     )
+    expect((await ui.find({ type: 'Button', key: 'status-termine' }))?.props.dimColor).toBe(true)
     expect((await ui.find({ type: 'Button', key: 'flag-remote' }))?.props.label).toBe(
-      'Pas remote',
+      '☐ Remote',
     )
     await ui.unmount()
   }
 })
 
-test('the band changes the status and the remote flag', FR, async ($, on) => {
+test('the band changes the status and the remote flag', CYCLE, async ($, on) => {
   const store = mockEngine(on)
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.prompt.submit({ text: 'Préparer la QA' })
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  await ui.press({ key: 'status-recycle' })
+  // From in progress, three presses reach recycled; a fourth goes round to the start.
+  for (const label of ['En attente', 'Terminé', 'Recyclé']) {
+    await ui.press({ key: 'status' })
+    expect((await ui.find({ type: 'Button', key: 'status' }))?.props.label).toBe(label)
+  }
   await ui.press({ key: 'flag-remote' })
-
-  expect((await ui.find({ type: 'Button', key: 'status-recycle' }))?.props.variant).toBe(
-    'primary',
-  )
   expect((await ui.find({ type: 'Button', key: 'flag-remote' }))?.props.label).toBe(
-    'Remote',
+    '☑ Remote',
   )
   expect(store.get('host:local_here')).toMatchObject({
     status: 'recycle',
@@ -170,19 +174,20 @@ test('the band changes the status and the remote flag', FR, async ($, on) => {
   await ui.unmount()
 })
 
-test('the band shows before the first message, with nothing selected', FR, async ($, on) => {
+test('the band shows before the first message, with nothing selected', CYCLE, async ($, on) => {
   const store = mockEngine(on)
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Button', key: 'status-en-cours' }))?.props.variant).toBe(
-    undefined,
-  )
-  await ui.press({ key: 'status-en-attente' })
-  expect((await ui.find({ type: 'Button', key: 'status-en-attente' }))?.props.variant).toBe(
-    'primary',
-  )
+  expect((await ui.find({ type: 'Button', key: 'status' }))?.props).toMatchObject({
+    label: 'Sans statut',
+    dimColor: true,
+  })
+  await ui.press({ key: 'status' })
+  expect((await ui.find({ type: 'Button', key: 'status' }))?.props.label).toBe('En cours')
+  expect(store.get('host:local_here')).toMatchObject({ status: 'en-cours' })
+  await ui.press({ key: 'status' })
   expect(store.get('host:local_here')).toMatchObject({ status: 'en-attente' })
   await ui.unmount()
 })
@@ -213,7 +218,7 @@ test('the board groups the conversations and filters on remote', FR, async ($, o
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /^En cours \(1\)$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^En attente \(1\)$/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /my-app · remote · jamais/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^my-app · remote$/ })).toBeTruthy()
 
   await ui.select({ key: 'flag-filter-remote', value: 'oui' })
   expect(await ui.find({ type: 'Text', text: /^En cours/ })).toBeFalsy()
@@ -293,7 +298,7 @@ test('the board lists the desktop conversations by their sidebar title', FR, asy
 
   await ui.select({ key: 'status-filter', value: 'aucun' })
   expect((await ui.find({ type: 'Markdown', key: 'open-desk' }))?.props.text).toContain('Revue PR 7368')
-  expect(await ui.find({ type: 'Text', text: /my-app · il y a 10 min/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^il y a 10 min$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Markdown', key: 'open-desk' })).toBeTruthy()
   expect(await ui.find({ type: 'Button', key: 'remove-desk' })).toBeFalsy()
   expect(await ui.find({ type: 'Text', text: /Vieille conversation/ })).toBeFalsy()
@@ -325,7 +330,7 @@ test('the perso flag separates personal conversations from job ones', FR, async 
 
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   await band.press({ key: 'flag-perso' })
-  expect((await band.find({ type: 'Button', key: 'flag-perso' }))?.props.label).toBe('Job')
+  expect((await band.find({ type: 'Button', key: 'flag-perso' }))?.props.label).toBe('☐ Perso')
   await band.unmount()
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
@@ -352,7 +357,11 @@ test('the board opens with the filters last chosen in any conversation', FR, asy
   expect((await ui.find({ type: 'Select', key: 'flag-filter-remote' }))?.props.value).toBe('oui')
 
   await ui.select({ key: 'flag-filter-perso', value: 'oui' })
-  expect(store.get('filters')).toEqual({ status: 'en-attente', flags: { perso: 'oui', remote: 'oui' } })
+  expect(store.get('filters')).toEqual({
+    status: 'en-attente',
+    period: 'tout',
+    flags: { perso: 'oui', remote: 'oui' },
+  })
   await ui.unmount()
 })
 
@@ -387,7 +396,7 @@ test('a row shows the last turn summary, what is asked and the pull request', FR
         postTurnSummary: {
           status_category: 'blocked',
           status_detail: 'waiting on review',
-          needs_action: "Cédric's answer on the Validator RB gap",
+          needs_action: "The reviewer's answer on the open question",
         },
         prs: [{ prNumber: 7368, state: 'OPEN' }],
       }),
@@ -402,9 +411,9 @@ test('a row shows the last turn summary, what is asked and the pull request', FR
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.select({ key: 'status-filter', value: 'aucun' })
-  expect(await ui.find({ type: 'Text', text: /my-app · PR #7368 ouverte · il y a/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^my-app · PR #7368 ouverte$/ })).toBeTruthy()
   expect(
-    await ui.find({ type: 'Text', text: /^⚠️ À toi : Cédric's answer on the Validator RB gap$/ }),
+    await ui.find({ type: 'Text', text: /^⚠️ The reviewer's answer on the open question$/ }),
   ).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^Récap QA publié$/ })).toBeTruthy()
   await ui.unmount()
@@ -582,7 +591,7 @@ test('with no options the mod speaks English and links no ticket', async ($, on)
   expect((await band.find({ type: 'Button', key: 'status-en-cours' }))?.props.label).toBe(
     'In progress',
   )
-  expect((await band.find({ type: 'Button', key: 'flag-perso' }))?.props.label).toBe('Work')
+  expect((await band.find({ type: 'Button', key: 'flag-perso' }))?.props.label).toBe('☐ Personal')
   await band.unmount()
 
   expect((await $.command.run({ command: 'docket', args: 'waiting' })).text).toBe(
@@ -592,7 +601,7 @@ test('with no options the mod speaks English and links no ticket', async ($, on)
   await $.command.run({ command: 'docket', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Markdown', key: 'ticket-jira' })).toBeFalsy()
-  expect(await ui.find({ type: 'Text', text: /my-app · 10 min ago/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^10 min ago$/ })).toBeTruthy()
   await ui.unmount()
 })
 
@@ -644,12 +653,13 @@ test(
     expect(store.get('host:local_here')).toMatchObject({ status: 'todo', flags: {} })
 
     const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect((await band.find({ type: 'Button', key: 'status-todo' }))?.props.variant).toBe('primary')
+    expect(await band.find({ type: 'Button', key: 'status-doing' })).toBeTruthy()
     expect(await band.find({ type: 'Button', key: 'status-tous' })).toBeFalsy()
-    expect(await band.find({ type: 'Button', key: 'status-bad id' })).toBeFalsy()
     expect(await band.find({ type: 'Button', key: 'flag-todo' })).toBeFalsy()
     expect(await band.find({ type: 'Button', key: 'flag-remote' })).toBeFalsy()
-    expect((await band.find({ type: 'Button', key: 'flag-client' }))?.props.label).toBe('Internal')
-    expect((await band.find({ type: 'Button', key: 'flag-urgent' }))?.props.label).toBe('Not urgent')
+    expect((await band.find({ type: 'Button', key: 'flag-client' }))?.props.label).toBe('☐ Client')
+    expect((await band.find({ type: 'Button', key: 'flag-urgent' }))?.props.label).toBe('☐ Urgent')
     await band.press({ key: 'flag-client' })
     await band.unmount()
 
@@ -723,21 +733,35 @@ test('the band counts the conversations that wait on the person', FR, async ($, 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   // This conversation and the archived one are not counted.
-  expect((await band.find({ type: 'Button', key: 'your-turn' }))?.props.label).toBe('⚠️ 2 à toi')
+  expect((await band.find({ type: 'Button', key: 'your-turn' }))?.props.label).toBe('⚠️ 2')
   await band.press({ key: 'your-turn' })
   await band.unmount()
-  expect(store.get('filters')).toMatchObject({ status: 'a-toi' })
 
+  // The your-turn section heads the board, whatever the filters, above the statuses.
+  await $.command.run({ command: 'docket', args: 'termine' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  const statusFilter = await ui.find({ type: 'Select', key: 'status-filter' })
-  expect(statusFilter?.props.value).toBe('a-toi')
-  expect(statusFilter?.props.options.find(option => option.value === 'a-toi')?.label).toBe(
-    '⚠️ À toi (2)',
-  )
+  expect(await ui.find({ type: 'Text', text: '⚠️ À toi (2)' })).toBeTruthy()
+  // The section and the filters each sit in a frame: orange for what waits, the theme's for the rest.
+  expect((await ui.find({ type: 'Box', key: 'your-turn' } as never))?.props).toMatchObject({
+    borderStyle: 'round',
+    borderColor: 'warning',
+  })
+  expect((await ui.find({ type: 'Box', key: 'filters' } as never))?.props).toMatchObject({
+    borderStyle: 'round',
+    borderColor: 'promptBorder',
+  })
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
   expect(await ui.find({ type: 'Markdown', key: 'open-b' })).toBeTruthy()
+  // d waits on no one and has no status: the default filter hides it.
   expect(await ui.find({ type: 'Markdown', key: 'open-d' })).toBeFalsy()
+  // The rows of the section are left out of the counts below.
+  const statusFilter = await ui.find({ type: 'Select', key: 'status-filter' })
+  expect(statusFilter?.props.options.map(option => option.value)).not.toContain('a-toi')
+  expect(statusFilter?.props.options.find(option => option.value === 'aucun')?.label).toBe(
+    'Sans statut (1)',
+  )
   await ui.unmount()
+  expect(store.get('filters')).toMatchObject({ status: 'tous' })
 })
 
 test('a note says why a conversation waits', FR, async ($, on) => {
@@ -749,21 +773,148 @@ test('a note says why a conversation waits', FR, async ($, on) => {
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.prompt.submit({ text: 'Préparer la QA' })
-  const saved = await $.command.run({ command: 'docket', args: 'note attendre   le retour de Yannick' })
+  const saved = await $.command.run({ command: 'docket', args: 'note attendre   le retour de l’équipe' })
   expect(saved.text).toBe('Note enregistrée.')
   expect(store.get('host:local_here')).toMatchObject({
     status: 'en-cours',
-    note: 'attendre le retour de Yannick',
+    note: 'attendre le retour de l’équipe',
   })
 
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await band.find({ type: 'Text', text: /📝 attendre le retour de Yannick/ })).toBeTruthy()
+  expect(await band.find({ type: 'Text', text: /📝 attendre le retour de l’équipe/ })).toBeTruthy()
   await band.unmount()
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /📝 attendre le retour de Yannick/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /📝 attendre le retour de l’équipe/ })).toBeTruthy()
   await ui.unmount()
 
   const cleared = await $.command.run({ command: 'docket', args: 'note' })
   expect(cleared.text).toBe('Note effacée.')
   expect(store.get('host:local_here')).not.toHaveProperty('note')
 })
+
+test('a your-turn filter kept by 0.4 falls back to every status', FR, async ($, on) => {
+  const store = mockEngine(on, { filters: { status: 'a-toi', flags: {} } })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Select', key: 'status-filter' }))?.props.value).toBe('tous')
+  // Nothing waits on the person: no section.
+  expect(await ui.find({ type: 'Text', text: /^⚠️ À toi/ })).toBeFalsy()
+  await ui.select({ key: 'period-filter', value: 'today' })
+  expect(store.get('filters')).toEqual({ status: 'tous', period: 'today', flags: {} })
+  await ui.unmount()
+})
+
+test('the period keeps the conversations active since then', FR, async ($, on) => {
+  const store = mockEngine(
+    on,
+    { filters: { status: 'aucun', flags: {} } },
+    {
+      'local_new.json': desktopRecord('new', 'Récente', false, { lastActivityAt: 3_000_000 }),
+      'local_old.json': desktopRecord('old', 'Ancienne', false, { lastActivityAt: 100_000 }),
+    },
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-old' })).toBeTruthy()
+
+  // The clock reads one hour: the old one was active 58 minutes ago, the new one 10.
+  await ui.select({ key: 'period-filter', value: '1h' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-old' })).toBeTruthy()
+  await clock.advance(10 * 60_000)
+  expect(await ui.find({ type: 'Markdown', key: 'open-old' })).toBeFalsy()
+  expect(await ui.find({ type: 'Markdown', key: 'open-new' })).toBeTruthy()
+  expect(store.get('filters')).toMatchObject({ period: '1h' })
+  await ui.unmount()
+})
+
+test(
+  'past five statuses the band shows a picker',
+  {
+    options: {
+      statuses: JSON.stringify(['a', 'b', 'c', 'd', 'e', 'f'].map(id => ({ id, label: id.toUpperCase() }))),
+    },
+  },
+  async ($, on) => {
+    const store = mockEngine(on)
+
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const picker = await band.find({ type: 'Select', key: 'status' })
+    expect(picker?.props.value).toBe('')
+    expect(picker?.props.options.map(option => option.value)).toEqual(['', 'a', 'b', 'c', 'd', 'e', 'f'])
+    expect(await band.find({ type: 'Button', key: 'status-a' })).toBeFalsy()
+    await band.select({ key: 'status', value: 'e' })
+    expect(store.get('host:local_here')).toMatchObject({ status: 'e' })
+    await band.unmount()
+  },
+)
+
+test('the status control option overrides the automatic choice', { options: { statusControl: 'dropdown' } }, async ($, on) => {
+  mockEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await band.find({ type: 'Select', key: 'status' })).toBeTruthy()
+  expect(await band.find({ type: 'Button', key: 'status-en-cours' })).toBeFalsy()
+  await band.unmount()
+})
+
+test('the filters sit in two columns, each with its label above', FR, async ($, on) => {
+  const store = mockEngine(
+    on,
+    { filters: { status: 'tous', flags: {} } },
+    { 'local_one.json': desktopRecord('one', 'Première') },
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Button', key: 'refresh' }))?.props.label).toBe('↻ Rafraîchir')
+  // Each picker has its label above it.
+  expect(await ui.find({ type: 'Text', text: 'Période' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'Type' })).toBeTruthy()
+  expect((await ui.find({ type: 'Select', key: 'flag-filter-remote' }))?.props.options[0]?.label).toBe(
+    'Tous',
+  )
+
+  await ui.select({ key: 'flag-filter-perso', value: 'non' })
+  expect(store.get('filters')).toEqual({ status: 'tous', period: 'tout', flags: { perso: 'non' } })
+  await ui.unmount()
+})
+
+test('refresh is a bar of its own under the pickers', FR, async ($, on) => {
+  mockEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Box', key: 'refresh-cell' } as never)).toBeFalsy()
+  expect(await ui.find({ type: 'Button', key: 'refresh' })).toBeTruthy()
+  await ui.unmount()
+})
+
+test(
+  'default statuses listed by id alone keep their labels, in the new order',
+  { options: { language: 'fr', statuses: '[{"id":"en-cours"},{"id":"en-attente"},{"id":"recycle"},{"id":"termine"}]' } },
+  async ($, on) => {
+    mockEngine(on)
+
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    await $.command.run({ command: 'docket', args: '' })
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const options = (await ui.find({ type: 'Select', key: 'status-filter' }))?.props.options ?? []
+    expect(options.map(option => option.label)).toEqual([
+      'Tous (0)',
+      'En cours (0)',
+      'En attente (0)',
+      'Recyclé (0)',
+      'Terminé (0)',
+      'Sans statut (0)',
+    ])
+    await ui.unmount()
+  },
+)

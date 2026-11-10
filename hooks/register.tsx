@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { DesktopSession, Entry, FlagFilter, StatusFilter } from '../types'
+import type { DesktopSession, Entry, FlagFilter, Period, StatusFilter } from '../types'
 
 const PANE = 'docket'
 const KEY_PREFIX = 'session:'
@@ -27,12 +27,10 @@ const TEXTS = {
     flagSet: (label: string) => `${label}.`,
     noteSaved: 'Note saved.',
     noteCleared: 'Note cleared.',
-    yourTurnBand: (count: number) => `⚠️ ${count} your turn`,
+    yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `⚠️ Your turn (${count})`,
     saveFailed: 'The conversation status could not be saved.',
-    status: 'Status',
-    board: 'Board',
-    paneTitle: '🏷️ Statuses',
+    paneTitle: '🏷️ Docket',
     statuses: [
       { id: 'en-cours', label: 'In progress', aliases: ['in-progress', 'progress', 'encours', 'cours'] },
       { id: 'en-attente', label: 'Waiting', aliases: ['waiting', 'attente'] },
@@ -46,8 +44,20 @@ const TEXTS = {
     not: (label: string) => `Not ${label.toLowerCase()}`,
     all: (count: number) => `All (${count})`,
     allFlags: 'All',
+    status: 'Status',
+    period: 'Period',
+    refresh: '↻ Refresh',
+    periods: {
+      tout: 'Any time',
+      '1h': '1 hour',
+      '2h': '2 hours',
+      '3h': '3 hours',
+      '6h': '6 hours',
+      today: 'Today',
+      '7d': '7 days',
+      '30d': '30 days',
+    } as Record<Period, string>,
     noStatus: 'No status',
-    refresh: 'Refresh',
     empty: 'No conversation here.',
     separator: 'Separator',
     glyph: 'Conversation mark',
@@ -57,7 +67,7 @@ const TEXTS = {
     ticketFailed: 'The ticket could not be opened.',
     untitled: 'Untitled conversation',
     never: 'never',
-    blocked: (text: string) => `⚠️ Your turn: ${text}`,
+    blocked: (text: string) => `⚠️ ${text}`,
     review: (text: string) => `👀 To review: ${text}`,
     prStates: { OPEN: 'open', MERGED: 'merged', CLOSED: 'closed', DRAFT: 'draft' } as Record<string, string>,
     justNow: 'just now',
@@ -75,12 +85,10 @@ const TEXTS = {
     flagSet: (label: string) => `${label}.`,
     noteSaved: 'Note enregistrée.',
     noteCleared: 'Note effacée.',
-    yourTurnBand: (count: number) => `⚠️ ${count} à toi`,
+    yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `⚠️ À toi (${count})`,
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
-    status: 'Statut',
-    board: 'Tableau',
-    paneTitle: '🏷️ Statuts',
+    paneTitle: '🏷️ Docket',
     statuses: [
       { id: 'en-cours', label: 'En cours', aliases: ['in-progress', 'progress', 'encours', 'cours'] },
       { id: 'en-attente', label: 'En attente', aliases: ['waiting', 'attente'] },
@@ -94,8 +102,20 @@ const TEXTS = {
     not: (label: string) => `Pas ${label.toLowerCase()}`,
     all: (count: number) => `Tous (${count})`,
     allFlags: 'Tous',
+    status: 'Statut',
+    period: 'Période',
+    refresh: '↻ Rafraîchir',
+    periods: {
+      tout: 'Tout',
+      '1h': '1 heure',
+      '2h': '2 heures',
+      '3h': '3 heures',
+      '6h': '6 heures',
+      today: "Aujourd'hui",
+      '7d': '7 jours',
+      '30d': '30 jours',
+    } as Record<Period, string>,
     noStatus: 'Sans statut',
-    refresh: 'Rafraîchir',
     empty: 'Aucune conversation ici.',
     separator: 'Séparateur',
     glyph: 'Repère de la conversation',
@@ -105,7 +125,7 @@ const TEXTS = {
     ticketFailed: "Le ticket n'a pas pu être ouvert.",
     untitled: 'Conversation sans titre',
     never: 'jamais',
-    blocked: (text: string) => `⚠️ À toi : ${text}`,
+    blocked: (text: string) => `⚠️ ${text}`,
     review: (text: string) => `👀 À revoir : ${text}`,
     prStates: { OPEN: 'ouverte', MERGED: 'mergée', CLOSED: 'fermée', DRAFT: 'brouillon' } as Record<string, string>,
     justNow: "à l'instant",
@@ -136,25 +156,31 @@ const config: {
   hues: Record<string, number>
   statuses: StatusDef[]
   flags: FlagDef[]
+  statusControl: StatusControl
 } = {
   texts: TEXTS.en,
   tickets: [],
   hues: {},
   statuses: [...TEXTS.en.statuses],
   flags: [...TEXTS.en.flags],
+  statusControl: 'auto',
 }
+
+// How the band shows the status: a button per status, a picker, or one button
+// that moves to the next status. `auto` picks buttons up to MAX_STATUS_BUTTONS.
+type StatusControl = 'auto' | 'buttons' | 'dropdown' | 'cycle'
+const STATUS_CONTROLS: readonly StatusControl[] = ['auto', 'buttons', 'dropdown', 'cycle']
+const MAX_STATUS_BUTTONS = 5
 
 // The status filter's own values, kept apart from the status ids.
 const ALL_STATUSES = 'tous'
 const NO_STATUS = 'aucun'
-// Rows whose conversation waits on the person, whatever their status.
+// Kept out of status and flag ids: 0.4 stored it as a status filter.
 const YOUR_TURN = 'a-toi'
 // Ids the statuses and flags cannot take: the filter's own values, and the note command.
 const RESERVED_IDS: readonly string[] = [ALL_STATUSES, NO_STATUS, YOUR_TURN, 'note']
 const NOTE_MAX = 200
 const FLAG_FILTERS: readonly FlagFilter[] = ['tous', 'oui', 'non']
-// Past this many statuses the band draws a picker instead of a button for each.
-const MAX_STATUS_BUTTONS = 5
 
 function statuses(): StatusDef[] {
   return config.statuses
@@ -189,6 +215,10 @@ const statusFilter = atom(
 )
 const tick = atom({ plugin: 'docket', key: 'tick' } as const, 0)
 const flagFilters = atom({ plugin: 'docket', key: 'flagFilters' } as const, {})
+const periodFilter = atom({ plugin: 'docket', key: 'period' } as const, 'tout' as Period)
+
+const PERIODS: readonly Period[] = ['tout', '1h', '2h', '3h', '6h', 'today', '7d', '30d']
+const HOUR_MS = 3_600_000
 
 export const register: Register = (on, options) => {
   let timer: Timer | undefined
@@ -333,79 +363,98 @@ export const register: Register = (on, options) => {
     const status = entry?.status ?? null
     const elements = $.ui.resolve(e)
     const { Box, Button, Text } = elements
-    const Select =
-      'Select' in elements && statuses().length > MAX_STATUS_BUTTONS ? elements.Select : undefined
-    const isKnown = status !== null && findStatus(status)?.id === status
+    const known = status === null ? undefined : findStatus(status)
+    const index = known === undefined ? -1 : statuses().indexOf(known)
+    const nextStatus = statuses()[(index + 1) % statuses().length]
+    const chosenControl =
+      config.statusControl === 'auto'
+        ? statuses().length > MAX_STATUS_BUTTONS
+          ? 'dropdown'
+          : 'buttons'
+        : config.statusControl
+    // A surface that draws no picker gets the buttons instead.
+    const Select = 'Select' in elements ? elements.Select : undefined
+    const control = chosenControl === 'dropdown' && Select === undefined ? 'buttons' : chosenControl
+    const statusControl =
+      control === 'cycle' ? (
+        <Button
+          key="status"
+          label={known?.label ?? t.noStatus}
+          variant={known === undefined ? undefined : 'primary'}
+          dimColor={known === undefined}
+          onPress={() => (nextStatus === undefined ? undefined : setStatus($, nextStatus.id))}
+        />
+      ) : control === 'dropdown' && Select !== undefined ? (
+        <Select
+          key="status"
+          options={[
+            ...(known === undefined ? [{ value: '', label: '—' }] : []),
+            ...statuses().map(option => ({ value: option.id, label: option.label })),
+          ]}
+          value={known?.id ?? ''}
+          onSelect={(value: string) => (value === '' ? undefined : setStatus($, value))}
+        />
+      ) : (
+        statuses().map(option => (
+          <Button
+            key={`status-${option.id}`}
+            label={option.label}
+            variant={option.id === known?.id ? 'primary' : undefined}
+            dimColor={option.id !== known?.id}
+            onPress={() => setStatus($, option.id)}
+          />
+        ))
+      )
     const hostId = await findHostId($)
     const waiting = (await read($, desktop)).filter(
       session => session.attention === 'blocked' && !session.isArchived && session.hostId !== hostId,
     ).length
 
+    // Left: this conversation (status, flags, note). Right: every conversation.
     return (
-      <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-        <Text dimColor>{t.status}</Text>
-        {Select === undefined ? (
-          statuses().map(option => (
-            <Button
-              key={`status-${option.id}`}
-              label={option.label}
-              variant={option.id === status ? 'primary' : undefined}
-              dimColor={option.id !== status}
-              onPress={() => setStatus($, option.id)}
-            />
-          ))
-        ) : (
-          <Select
-            key="status"
-            label={t.status}
-            options={[
-              ...(isKnown ? [] : [{ value: '', label: '—' }]),
-              ...statuses().map(option => ({ value: option.id, label: option.label })),
-            ]}
-            value={isKnown ? status : ''}
-            onSelect={(value: string) => (value === '' ? undefined : setStatus($, value))}
-          />
-        )}
-        {flags().length > 0 && <Text dimColor>·</Text>}
-        {flags().map(flag => {
-          const isOn = entry?.flags[flag.id] === true
+      <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap={2}>
+        <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1} flexShrink={1}>
+          {statusControl}
+          {flags().map(flag => {
+            const isOn = entry?.flags[flag.id] === true
 
-          return (
+            return (
+              <Button
+                key={`flag-${flag.id}`}
+                plain
+                label={`${isOn ? '☑' : '☐'} ${flag.on}`}
+                dimColor={!isOn}
+                onPress={() => setFlag($, flag.id, !isOn)}
+              />
+            )
+          })}
+          {entry?.note !== undefined && (
+            <Text dimColor wrap="truncate-end">
+              📝 {entry.note}
+            </Text>
+          )}
+        </Box>
+        <Box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+          {waiting > 0 && (
             <Button
-              key={`flag-${flag.id}`}
-              label={isOn ? flag.on : flag.off}
-              variant={isOn ? 'primary' : undefined}
-              dimColor={!isOn}
-              onPress={() => setFlag($, flag.id, !isOn)}
+              key="your-turn"
+              label={t.yourTurnBand(waiting)}
+              onPress={async () => {
+                await refreshAll($)
+                await $.ui.open({ id: PANE, title: t.paneTitle })
+              }}
             />
-          )
-        })}
-        <Text dimColor>·</Text>
-        <Button
-          key="board"
-          label={t.board}
-          dimColor
-          onPress={async () => {
-            await refreshAll($)
-            await $.ui.open({ id: PANE, title: t.paneTitle })
-          }}
-        />
-        {waiting > 0 && (
+          )}
           <Button
-            key="your-turn"
-            label={t.yourTurnBand(waiting)}
+            key="board"
+            label="🏷️"
+            dimColor
             onPress={async () => {
               await refreshAll($)
-              await saveStatusFilter($, YOUR_TURN)
               await $.ui.open({ id: PANE, title: t.paneTitle })
             }}
           />
-        )}
-        {entry?.note !== undefined && (
-          <Text dimColor wrap="truncate-end">
-            📝 {entry.note}
-          </Text>
-        )}
+        </Box>
       </Box>
     )
   })
@@ -435,106 +484,35 @@ export const register: Register = (on, options) => {
     const onlyStatus = parseStatusFilter(await read($, statusFilter))
     const hereId = await $.session.id()
     const now = await $.clock.now()
-    const shown = rows.filter(row => flags().every(flag => matchesFlag(row, flag, flagFilter(flag))))
+    const period = await read($, periodFilter)
+    const since = findPeriodStart(period, now)
+    const shown = rows.filter(
+      row =>
+        row.lastActivityAt >= since && flags().every(flag => matchesFlag(row, flag, flagFilter(flag))),
+    )
+    const periodOptions = PERIODS.map(id => ({ value: id, label: t.periods[id] }))
+    // What waits on the person heads the board, filters aside, and is not repeated below.
     const isYourTurn = (row: Row) => row.attention === 'blocked' && row.key !== hereId
-    const yourTurn = shown.filter(isYourTurn)
-    const groupRows = (list: readonly Row[]): { id: string; label: string; rows: Row[] }[] => [
+    const yourTurn = rows.filter(isYourTurn)
+    const listed = shown.filter(row => !isYourTurn(row))
+    const groups: { id: string; label: string; rows: Row[] }[] = [
       ...statuses().map(status => ({
         id: status.id,
         label: status.label,
-        rows: list.filter(row => hasStatus(row) && row.entry?.status === status.id),
+        rows: listed.filter(row => hasStatus(row) && row.entry?.status === status.id),
       })),
-      { id: NO_STATUS, label: t.noStatus, rows: list.filter(row => !hasStatus(row)) },
+      { id: NO_STATUS, label: t.noStatus, rows: listed.filter(row => !hasStatus(row)) },
     ]
-    const counted = groupRows(shown)
-    const groups = onlyStatus === YOUR_TURN ? groupRows(yourTurn) : counted
     const isShown = (id: string) =>
-      onlyStatus === id ||
-      onlyStatus === YOUR_TURN ||
-      (onlyStatus === ALL_STATUSES && id !== NO_STATUS)
+      onlyStatus === id || (onlyStatus === ALL_STATUSES && id !== NO_STATUS)
     const statusOptions = [
-      { value: ALL_STATUSES, label: t.all(shown.filter(row => hasStatus(row)).length) },
-      ...(yourTurn.length > 0 || onlyStatus === YOUR_TURN
-        ? [{ value: YOUR_TURN, label: t.yourTurn(yourTurn.length) }]
-        : []),
-      ...counted.map(group => ({
+      { value: ALL_STATUSES, label: t.all(listed.filter(row => hasStatus(row)).length) },
+      ...groups.map(group => ({
         value: group.id,
         label: `${group.label} (${group.rows.length})`,
       })),
     ]
-
-    return (
-      <Box flexDirection="column" gap={1}>
-        {Select === undefined ? (
-          <Box flexDirection="column" gap={1}>
-            <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-              {statusOptions.map(option => (
-                <Button
-                  key={`only-${option.value}`}
-                  label={option.label}
-                  variant={onlyStatus === option.value ? 'primary' : undefined}
-                  dimColor={onlyStatus !== option.value}
-                  onPress={() => saveStatusFilter($, option.value)}
-                />
-              ))}
-            </Box>
-            {flags().map(flag => (
-              <Box
-                key={`flag-filters-${flag.id}`}
-                flexDirection="row"
-                flexWrap="wrap"
-                alignItems="center"
-                gap={1}
-              >
-                {flagOptions(flag).map(option => (
-                  <Button
-                    key={`flag-${flag.id}-${option.value}`}
-                    label={option.label}
-                    variant={option.value === flagFilter(flag) ? 'primary' : undefined}
-                    dimColor={option.value !== flagFilter(flag)}
-                    onPress={() => saveFlagFilter($, flag.id, option.value)}
-                  />
-                ))}
-              </Box>
-            ))}
-            <Button key="refresh" label={t.refresh} dimColor onPress={() => refreshAll($)} />
-          </Box>
-        ) : (
-          <Box flexDirection="column" alignItems="flex-start" gap={1}>
-            <Select
-              key="status-filter"
-              label={t.status}
-              options={statusOptions}
-              value={onlyStatus}
-              onSelect={(value: string) => saveStatusFilter($, value)}
-            />
-            {flags().map(flag => (
-              <Select
-                key={`flag-filter-${flag.id}`}
-                label={flag.label}
-                options={flagOptions(flag)}
-                value={flagFilter(flag)}
-                onSelect={(value: string) => saveFlagFilter($, flag.id, parseFlagFilter(value))}
-              />
-            ))}
-            <Button key="refresh" label={t.refresh} dimColor onPress={() => refreshAll($)} />
-          </Box>
-        )}
-        {groups.every(group => !isShown(group.id) || group.rows.length === 0) && (
-          <Text dimColor>{t.empty}</Text>
-        )}
-        {groups.map(group => {
-          if (!isShown(group.id) || group.rows.length === 0) {
-            return null
-          }
-
-          return (
-            <Box key={`group-${group.id}`} flexDirection="column" gap={1} marginTop={1}>
-              <Text weight="bold" size="heading">
-                {group.label} ({group.rows.length})
-              </Text>
-              {group.rows.flatMap((row, index) => [
-                ...(index === 0 ? [] : [separator(`separator-${row.key}`)]),
+    const renderRow = (row: Row) => (
                 <Box key={`row-${row.key}`} flexDirection="row" alignItems="flex-start" gap={2}>
                   {Svg === undefined ? (
                     <Text color={glyphColor(row.hostId ?? row.key, findProject(row))}>
@@ -572,7 +550,7 @@ export const register: Register = (on, options) => {
                         />
                       )}
                       <Text dimColor size="footnote" wrap="truncate-end">
-                        {row.key === hereId ? `${t.here} · ${describe(row, now)}` : describe(row, now)}
+                        {row.key === hereId ? `${t.here} · ${describe(row)}` : describe(row)}
                       </Text>
                     </Box>
                     {row.entry?.note !== undefined && (
@@ -580,6 +558,9 @@ export const register: Register = (on, options) => {
                         📝 {row.entry.note}
                       </Text>
                     )}
+                    <Text dimColor size="caption">
+                      {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
+                    </Text>
                     {row.summary !== undefined && (
                       <Text
                         size="footnote"
@@ -599,8 +580,163 @@ export const register: Register = (on, options) => {
                       onPress={() => row.entry !== undefined && removeEntry($, row.entry)}
                     />
                   )}
-                </Box>,
-              ])}
+                </Box>
+    )
+    const listRows = (list: readonly Row[]) =>
+      list.flatMap((row, index) => [
+        ...(index === 0 ? [] : [separator(`separator-${row.key}`)]),
+        renderRow(row),
+      ])
+    // Each picker with its label above it, laid out in two columns, row by row.
+    const labelled = (key: string, label: string, node: JSX.Element) => ({
+      node: (
+        <Box key={`picker-${key}`} flexDirection="column">
+          <Text dimColor size="caption">
+            {label}
+          </Text>
+          {node}
+        </Box>
+      ),
+    })
+    const pickers =
+      Select === undefined
+        ? []
+        : [
+            labelled(
+              'status',
+              t.status,
+              <Select
+                key="status-filter"
+                options={statusOptions}
+                value={onlyStatus}
+                onSelect={(value: string) => saveStatusFilter($, value)}
+              />,
+            ),
+            labelled(
+              'period',
+              t.period,
+              <Select
+                key="period-filter"
+                options={periodOptions}
+                value={period}
+                onSelect={(value: string) => savePeriod($, parsePeriod(value))}
+              />,
+            ),
+            ...flags().map(flag =>
+              labelled(
+                `flag-${flag.id}`,
+                flag.label,
+                <Select
+                  key={`flag-filter-${flag.id}`}
+                  options={flagOptions(flag)}
+                  value={flagFilter(flag)}
+                  onSelect={(value: string) => saveFlagFilter($, flag.id, parseFlagFilter(value))}
+                />,
+              ),
+            ),
+          ]
+    // Refresh has a row of its own under the pickers, centered: a button keeps its own width.
+    const tools = (
+      <Box key="tools" flexDirection="row" justifyContent="center" marginTop={1}>
+        <Button key="refresh" label={t.refresh} onPress={() => refreshAll($)} />
+      </Box>
+    )
+    return (
+      <Box flexDirection="column" gap={1}>
+        {yourTurn.length > 0 && (
+          <Box
+            key="your-turn"
+            flexDirection="column"
+            gap={1}
+            borderStyle="round"
+            borderColor="warning"
+            paddingX={1}
+          >
+            <Text weight="bold" size="heading" color="warning">
+              {t.yourTurn(yourTurn.length)}
+            </Text>
+            {listRows(yourTurn)}
+          </Box>
+        )}
+        <Box key="filters" flexDirection="column" borderStyle="round" borderColor="promptBorder" paddingX={1}>
+          {Select === undefined ? (
+          <Box flexDirection="column" gap={1}>
+            <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
+              {statusOptions.map(option => (
+                <Button
+                  key={`only-${option.value}`}
+                  label={option.label}
+                  variant={onlyStatus === option.value ? 'primary' : undefined}
+                  dimColor={onlyStatus !== option.value}
+                  onPress={() => saveStatusFilter($, option.value)}
+                />
+              ))}
+            </Box>
+            <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
+              {periodOptions.map(option => (
+                <Button
+                  key={`period-${option.value}`}
+                  label={option.label}
+                  variant={period === option.value ? 'primary' : undefined}
+                  dimColor={period !== option.value}
+                  onPress={() => savePeriod($, option.value)}
+                />
+              ))}
+            </Box>
+            {flags().map(flag => (
+              <Box
+                key={`flag-filters-${flag.id}`}
+                flexDirection="row"
+                flexWrap="wrap"
+                alignItems="center"
+                gap={1}
+              >
+                {flagOptions(flag).map(option => (
+                  <Button
+                    key={`flag-${flag.id}-${option.value}`}
+                    label={option.label}
+                    variant={option.value === flagFilter(flag) ? 'primary' : undefined}
+                    dimColor={option.value !== flagFilter(flag)}
+                    onPress={() => saveFlagFilter($, flag.id, option.value)}
+                  />
+                ))}
+              </Box>
+            ))}
+            {tools}
+          </Box>
+        ) : (
+          <Box flexDirection="column" gap={1}>
+            <Box flexDirection="row" alignItems="flex-start" gap={3}>
+              {[0, 1].map(column => (
+                <Box
+                  key={`filter-column-${column}`}
+                  flexDirection="column"
+                  gap={1}
+                  flexGrow={1}
+                  flexShrink={1}
+                >
+                  {pickers.filter((_, index) => index % 2 === column).map(picker => picker.node)}
+                </Box>
+              ))}
+            </Box>
+            {tools}
+          </Box>
+          )}
+        </Box>
+        {groups.every(group => !isShown(group.id) || group.rows.length === 0) && (
+          <Text dimColor>{t.empty}</Text>
+        )}
+        {groups.map(group => {
+          if (!isShown(group.id) || group.rows.length === 0) {
+            return null
+          }
+
+          return (
+            <Box key={`group-${group.id}`} flexDirection="column" gap={1} marginTop={1}>
+              <Text weight="bold" size="heading">
+                {group.label} ({group.rows.length})
+              </Text>
+              {listRows(group.rows)}
             </Box>
           )
         })}
@@ -680,12 +816,22 @@ async function removeEntry($: EngineInterface, entry: Entry): Promise<void> {
 
 // The board's filters, shared by every conversation so the board opens as it was left.
 // A flag filter is kept by the flag's id, so it outlives a flag removed then added back.
-type Filters = { status: StatusFilter; flags: Record<string, FlagFilter> }
+type Filters = {
+  status: StatusFilter
+  period: Period
+  flags: Record<string, FlagFilter>
+}
 
 const FILTERS_KEY = 'filters'
 
 async function saveStatusFilter($: EngineInterface, status: string): Promise<void> {
   const filters = { ...(await readStoredFilters($)), status: parseStatusFilter(status) }
+  await $.store.set(FILTERS_KEY, filters)
+  await applyFilters($, filters)
+}
+
+async function savePeriod($: EngineInterface, period: Period): Promise<void> {
+  const filters = { ...(await readStoredFilters($)), period }
   await $.store.set(FILTERS_KEY, filters)
   await applyFilters($, filters)
 }
@@ -704,6 +850,9 @@ async function loadFilters($: EngineInterface): Promise<void> {
 async function applyFilters($: EngineInterface, filters: Filters): Promise<void> {
   if ((await read($, statusFilter)) !== filters.status) {
     await update($, statusFilter, () => filters.status)
+  }
+  if ((await read($, periodFilter)) !== filters.period) {
+    await update($, periodFilter, () => filters.period)
   }
   if (JSON.stringify(await read($, flagFilters)) !== JSON.stringify(filters.flags)) {
     await update($, flagFilters, () => filters.flags)
@@ -733,8 +882,13 @@ async function readStoredFilters($: EngineInterface): Promise<Filters> {
     }
   }
 
+  // 0.4 kept the your-turn list as a status filter; it heads the board now.
+  const status =
+    typeof value.status === 'string' && value.status !== YOUR_TURN ? value.status : ALL_STATUSES
+
   return {
-    status: typeof value.status === 'string' ? value.status : ALL_STATUSES,
+    status,
+    period: parsePeriod(typeof value.period === 'string' ? value.period : ''),
     flags: flagsKept,
   }
 }
@@ -1174,6 +1328,7 @@ function applyOptions(options: Readonly<Record<string, unknown>>): void {
   config.hues = parseHues(options.projectColors)
   config.statuses = parseStatuses(options.statuses) ?? [...config.texts.statuses]
   config.flags = parseFlags(options.flags, config.statuses) ?? [...config.texts.flags]
+  config.statusControl = STATUS_CONTROLS.find(one => one === options.statusControl) ?? 'auto'
 }
 
 // An id is a short word: letters, digits and dashes.
@@ -1358,7 +1513,8 @@ function matchesFlag(row: Row, flag: FlagDef, filter: FlagFilter): boolean {
   return true
 }
 
-function describe(row: Row, now: number): string {
+// The row's facts line: folder, pull request and flags; the age has its own line under it.
+function describe(row: Row): string {
   const parts = [row.folder]
   if (row.pr !== undefined) {
     parts.push(`PR #${row.pr.number} ${formatPrState(row.pr.state)}`.trim())
@@ -1368,8 +1524,6 @@ function describe(row: Row, now: number): string {
       parts.push(flag.on.toLowerCase())
     }
   }
-  parts.push(row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : config.texts.never)
-
   return parts.join(' · ')
 }
 
@@ -1429,9 +1583,32 @@ function toWord(text: string): string {
 }
 
 function parseStatusFilter(value: string): StatusFilter {
-  const isOwn = value === NO_STATUS || value === YOUR_TURN
+  return value === NO_STATUS || findStatus(value)?.id === value ? value : ALL_STATUSES
+}
 
-  return isOwn || findStatus(value)?.id === value ? value : ALL_STATUSES
+function parsePeriod(value: string): Period {
+  return PERIODS.find(one => one === value) ?? 'tout'
+}
+
+// The earliest last activity a period keeps; today starts at local midnight.
+function findPeriodStart(period: Period, now: number): number {
+  if (period === 'today') {
+    const midnight = new Date(now)
+    midnight.setHours(0, 0, 0, 0)
+
+    return midnight.getTime()
+  }
+  const hours: Record<Exclude<Period, 'today'>, number> = {
+    tout: Number.POSITIVE_INFINITY,
+    '1h': 1,
+    '2h': 2,
+    '3h': 3,
+    '6h': 6,
+    '7d': 7 * 24,
+    '30d': 30 * 24,
+  }
+
+  return now - hours[period] * HOUR_MS
 }
 
 function parseFlagFilter(value: string): FlagFilter {

@@ -5,13 +5,14 @@ Each conversation gets a status and two flags, and a board lists all of them.
 
 - Statuses: in progress, waiting, done, recycled, or your own list.
 - Flags: remote, and personal (as opposed to work), or your own list.
-- A band above the prompt sets the status and the flags of the current conversation.
-- The board groups every conversation by status, with a filter on status and one per flag.
+- A band above the prompt sets the status and the flags (check boxes) of the current conversation.
+- The board groups every conversation by status, with a filter on status, one per flag, and a period (1 hour, today, 7 days…).
 - In the desktop app, each row shows the sidebar title, the last turn summary, the pull request and the age.
 - A click on a title opens that conversation.
 - Each conversation gets a small glyph, colored by project, to spot it at a glance.
 - Titles that name a ticket get a link to it, with rules you set.
-- The band counts the other conversations that wait on you (⚠️ 2 your turn); a click shows them on the board.
+- The band counts the other conversations that wait on you (⚠️ 2); 🏷️ opens the board.
+- A "Your turn" section heads the board when something waits on you, with what each conversation asks; filters leave it alone.
 - A short note per conversation says why it waits or what comes next.
 
 > [!WARNING]
@@ -42,7 +43,7 @@ In the desktop app, where `/plugin` does not run: click + next to the prompt box
 - `/docket <status>` sets the status, by its id or its label: `/docket done`, `/docket waiting`.
 - `/docket <flag> [yes|no]` sets a flag: `/docket remote yes`. With no value, it toggles.
 - `/docket note <text>` writes the conversation's note, shown in the band and on the board. `/docket note` alone clears it.
-- The band above the prompt does the same with buttons.
+- The band above the prompt does the same, with buttons, a dropdown or one cycling button (see `statusControl`).
 
 A conversation gets the first status when you send its first message.
 
@@ -58,6 +59,7 @@ Set them when you install, or later in `/config`.
 | `language` | `en` or `fr`. | `en` |
 | `statuses` | A JSON list of the statuses, in order. | in progress, waiting, done, recycled |
 | `flags` | A JSON list of yes-or-no flags. `[]` for none. | remote, personal |
+| `statusControl` | How the band shows the status: `buttons`, `dropdown`, `cycle` (one button that moves to the next status), or `auto`. | `auto`: buttons up to 5 statuses, a dropdown past that |
 | `ticketLinks` | A JSON list of rules that turn a ticket named in a title into a link. | none |
 | `projectColors` | A JSON map from a project to a hue from 0 to 359. | a hue from the project's name |
 
@@ -75,11 +77,12 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 ```
 
 - `id`: letters, digits and dashes. The store keeps it, so change a label freely, not an id.
-- `tous`, `aucun`, `a-toi` and `note` are taken by the board's filter and the note command.
+- `tous`, `aucun`, `a-toi` and `note` are taken by the board and the note command.
 - `label`: what the band and the board show.
+- A default status listed by its id alone (`{ "id": "termine" }`) keeps its translated label: list the defaults in another order this way.
 - The first status is the one a new conversation gets.
 - A conversation whose status you remove shows under "No status". Add the id back and it returns.
-- Past 5 statuses, the band shows a picker instead of buttons, where the app draws one.
+- The band shows them in this order.
 
 ### Flags
 
@@ -92,9 +95,10 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 
 - `id`: letters, digits and dashes. It cannot be a status id, nor `tous`, `aucun`, `a-toi` or `note`.
 - `label`: the name of the flag's filter on the board.
-- `on` and `off` (optional): what the band button, the filter and the row say in each state. Default: the label, and "Not" and the label.
+- `on` (optional): the flag's name next to its check box in the band, its "yes" in the filter, and its word in the row. Default: the label.
+- `off` (optional): the filter's "no". Default: "Not" and the label.
 - A flag listed by its id alone (`{ "id": "perso" }`) keeps its default words.
-- Each flag gets a button in the band, a filter on the board, and a word in each row where it is set.
+- Each flag gets a check box in the band, a filter on the board, and a word in each row where it is set.
 
 ### Ticket links
 
