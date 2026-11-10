@@ -242,7 +242,8 @@ export const register: Register = (on, options) => {
         .catch(() => $.ui.toast(t.saveFailed))
     }
 
-    await refreshBoard($)
+    // The prompt is already on its way: a failed read never holds it back.
+    await refreshBoard($).catch(() => undefined)
 
     return submitted
   })

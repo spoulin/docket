@@ -1,6 +1,11 @@
 {
   "name": "docket",
-  "owner": { "name": "spoulin" },
+  "owner": {
+    "name": "spoulin"
+  },
+  "metadata": {
+    "description": "docket: a status and flags for each Claude Code conversation, with a board of all of them"
+  },
   "plugins": [
     {
       "name": "docket",

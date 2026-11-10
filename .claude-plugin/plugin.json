@@ -2,6 +2,12 @@
   "name": "docket",
   "version": "0.3.0",
   "description": "A status and remote and personal flags for each conversation, with a board of all of them",
+  "author": {
+    "name": "spoulin",
+    "url": "https://github.com/spoulin"
+  },
+  "homepage": "https://github.com/spoulin/docket",
+  "license": "MIT",
   "types": "./types/index.d.ts",
   "userConfig": {
     "language": {
