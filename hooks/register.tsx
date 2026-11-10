@@ -1,19 +1,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type {
-  DesktopSession,
-  Entry,
-  KindFilter,
-  RemoteFilter,
-  Status,
-  StatusFilter,
-} from '../types'
+import type { DesktopSession, Entry, FlagFilter, StatusFilter } from '../types'
 
 const PANE = 'docket'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
+// The app writes a turn's summary to its record a moment after the turn ends.
+const SETTLE_MS = 3_000
 // A one-pixel gray rule, stretched to the row's width; a mid gray reads on light and dark.
 const SEPARATOR_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 1" preserveAspectRatio="none">' +
@@ -23,29 +18,31 @@ const SEPARATOR_SVG =
 // they are what the store keeps.
 const TEXTS = {
   en: {
-    commandDescription:
-      'Status: in-progress, waiting, done, recycled; remote [yes|no]; personal [yes|no]; alone, opens the board',
+    commandDescription: (statusIds: string, flagIds: string) =>
+      `Status: ${statusIds}; ${flagIds} [yes|no]; alone, opens the board`,
     boardOpened: 'Status board opened.',
     unknownFlag: (value: string) => `Unknown value "${value}". Values: yes, no.`,
-    personalOn: 'Personal: yes.',
-    personalOff: 'Personal: no (work).',
-    remoteOn: 'Remote: yes.',
-    remoteOff: 'Remote: no.',
-    unknownStatus: (value: string) =>
-      `Unknown status "${value}". Values: in-progress, waiting, done, recycled.`,
+    unknownStatus: (value: string, ids: string) => `Unknown status "${value}". Values: ${ids}.`,
     statusSet: (label: string) => `Status: ${label}.`,
+    flagSet: (label: string) => `${label}.`,
     saveFailed: 'The conversation status could not be saved.',
     status: 'Status',
-    remoteButton: (isRemote: boolean): string => (isRemote ? 'Remote: yes' : 'Remote: no'),
     board: 'Board',
     paneTitle: 'Statuses',
-    statuses: { 'en-cours': 'In progress', 'en-attente': 'Waiting', termine: 'Done', recycle: 'Recycled' },
-    kinds: { tous: 'All', job: 'Work', perso: 'Personal' },
-    remoteFilters: { tous: 'All', remote: 'Remote', local: 'Not remote' },
+    statuses: [
+      { id: 'en-cours', label: 'In progress', aliases: ['in-progress', 'progress', 'encours', 'cours'] },
+      { id: 'en-attente', label: 'Waiting', aliases: ['waiting', 'attente'] },
+      { id: 'termine', label: 'Done', aliases: ['done', 'fini'] },
+      { id: 'recycle', label: 'Recycled', aliases: ['recycled'] },
+    ],
+    flags: [
+      { id: 'remote', label: 'Remote', on: 'Remote', off: 'Not remote', aliases: [] },
+      { id: 'perso', label: 'Kind', on: 'Personal', off: 'Work', aliases: ['personal'] },
+    ],
+    not: (label: string) => `Not ${label.toLowerCase()}`,
     all: (count: number) => `All (${count})`,
+    allFlags: 'All',
     noStatus: 'No status',
-    kind: 'Kind',
-    remote: 'Remote',
     refresh: 'Refresh',
     empty: 'No conversation here.',
     separator: 'Separator',
@@ -55,8 +52,6 @@ const TEXTS = {
     openFailed: 'The conversation could not be opened.',
     ticketFailed: 'The ticket could not be opened.',
     untitled: 'Untitled conversation',
-    personalTag: 'personal',
-    remoteTag: 'remote',
     never: 'never',
     blocked: (text: string) => `⚠️ Your turn: ${text}`,
     review: (text: string) => `👀 To review: ${text}`,
@@ -67,29 +62,31 @@ const TEXTS = {
     daysAgo: (count: number) => `${count} d ago`,
   },
   fr: {
-    commandDescription:
-      'Statut : en-cours, en-attente, termine, recycle; remote [oui|non]; perso [oui|non]; seul, ouvre le tableau',
+    commandDescription: (statusIds: string, flagIds: string) =>
+      `Statut : ${statusIds}; ${flagIds} [oui|non]; seul, ouvre le tableau`,
     boardOpened: 'Tableau des statuts ouvert.',
     unknownFlag: (value: string) => `Valeur inconnue "${value}". Valeurs : oui, non.`,
-    personalOn: 'Perso : oui.',
-    personalOff: 'Perso : non (job).',
-    remoteOn: 'Remote : oui.',
-    remoteOff: 'Remote : non.',
-    unknownStatus: (value: string) =>
-      `Statut inconnu "${value}". Valeurs : en-cours, en-attente, termine, recycle.`,
+    unknownStatus: (value: string, ids: string) => `Statut inconnu "${value}". Valeurs : ${ids}.`,
     statusSet: (label: string) => `Statut : ${label}.`,
+    flagSet: (label: string) => `${label}.`,
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     status: 'Statut',
-    remoteButton: (isRemote: boolean): string => (isRemote ? 'Remote : oui' : 'Remote : non'),
     board: 'Tableau',
     paneTitle: 'Statuts',
-    statuses: { 'en-cours': 'En cours', 'en-attente': 'En attente', termine: 'Terminé', recycle: 'Recyclé' },
-    kinds: { tous: 'Tous', job: 'Job', perso: 'Perso' },
-    remoteFilters: { tous: 'Tous', remote: 'Remote', local: 'Pas remote' },
+    statuses: [
+      { id: 'en-cours', label: 'En cours', aliases: ['in-progress', 'progress', 'encours', 'cours'] },
+      { id: 'en-attente', label: 'En attente', aliases: ['waiting', 'attente'] },
+      { id: 'termine', label: 'Terminé', aliases: ['done', 'fini'] },
+      { id: 'recycle', label: 'Recyclé', aliases: ['recycled'] },
+    ],
+    flags: [
+      { id: 'remote', label: 'Remote', on: 'Remote', off: 'Pas remote', aliases: [] },
+      { id: 'perso', label: 'Type', on: 'Perso', off: 'Job', aliases: ['personal'] },
+    ],
+    not: (label: string) => `Pas ${label.toLowerCase()}`,
     all: (count: number) => `Tous (${count})`,
+    allFlags: 'Tous',
     noStatus: 'Sans statut',
-    kind: 'Type',
-    remote: 'Remote',
     refresh: 'Rafraîchir',
     empty: 'Aucune conversation ici.',
     separator: 'Séparateur',
@@ -99,8 +96,6 @@ const TEXTS = {
     openFailed: "La conversation n'a pas pu être ouverte.",
     ticketFailed: "Le ticket n'a pas pu être ouvert.",
     untitled: 'Conversation sans titre',
-    personalTag: 'perso',
-    remoteTag: 'remote',
     never: 'jamais',
     blocked: (text: string) => `⚠️ À toi : ${text}`,
     review: (text: string) => `👀 À revoir : ${text}`,
@@ -119,36 +114,58 @@ type Texts = (typeof TEXTS)['en']
 // in capitals when `uppercase` is set.
 type TicketRule = { pattern: RegExp; url: string; label: string; project?: string; uppercase: boolean }
 
+// A status a conversation can have; the first one in the list is given on the first message.
+type StatusDef = { id: string; label: string; aliases: readonly string[] }
+
+// A yes-or-no flag: a button in the band, a filter on the board, a word in each row.
+// `label` names the filter, `on` and `off` say what each state reads.
+type FlagDef = { id: string; label: string; on: string; off: string; aliases: readonly string[] }
+
 // The options the module was loaded with; register sets them on each load.
-const config: { texts: Texts; tickets: TicketRule[]; hues: Record<string, number> } = {
+const config: {
+  texts: Texts
+  tickets: TicketRule[]
+  hues: Record<string, number>
+  statuses: StatusDef[]
+  flags: FlagDef[]
+} = {
   texts: TEXTS.en,
   tickets: [],
   hues: {},
+  statuses: [...TEXTS.en.statuses],
+  flags: [...TEXTS.en.flags],
 }
 
-const STATUS_IDS: readonly Status[] = ['en-cours', 'en-attente', 'termine', 'recycle']
-const KIND_IDS: readonly KindFilter[] = ['tous', 'job', 'perso']
-const REMOTE_IDS: readonly RemoteFilter[] = ['tous', 'remote', 'local']
+// The status filter's own values, kept apart from the status ids.
+const ALL_STATUSES = 'tous'
+const NO_STATUS = 'aucun'
+const FLAG_FILTERS: readonly FlagFilter[] = ['tous', 'oui', 'non']
+// Past this many statuses the band draws a picker instead of a button for each.
+const MAX_STATUS_BUTTONS = 5
 
-function statuses(): { id: Status; label: string }[] {
-  return STATUS_IDS.map(id => ({ id, label: config.texts.statuses[id] }))
+function statuses(): StatusDef[] {
+  return config.statuses
 }
 
-function kinds(): { id: KindFilter; label: string }[] {
-  return KIND_IDS.map(id => ({ id, label: config.texts.kinds[id] }))
+function flags(): FlagDef[] {
+  return config.flags
 }
 
-function remoteFilters(): { id: RemoteFilter; label: string }[] {
-  return REMOTE_IDS.map(id => ({ id, label: config.texts.remoteFilters[id] }))
+function flagOptions(flag: FlagDef): { value: FlagFilter; label: string }[] {
+  return [
+    { value: 'tous', label: config.texts.allFlags },
+    { value: 'oui', label: flag.on },
+    { value: 'non', label: flag.off },
+  ]
 }
 
 // Change the tag when an entry's fields change: it declines what an earlier
 // version stored, which outlives a reload.
 const current = atom({ plugin: 'docket', key: 'current' } as const, null, {
-  shape: 'entry-1',
+  shape: 'entry-2',
 })
 const all = atom({ plugin: 'docket', key: 'all' } as const, [], {
-  shape: 'entry-1',
+  shape: 'entry-2',
 })
 const desktop = atom({ plugin: 'docket', key: 'desktop' } as const, [], {
   shape: 'desktop-1',
@@ -158,14 +175,11 @@ const statusFilter = atom(
   'tous',
 )
 const tick = atom({ plugin: 'docket', key: 'tick' } as const, 0)
-const kindFilter = atom({ plugin: 'docket', key: 'kindFilter' } as const, 'tous')
-const remoteFilter = atom(
-  { plugin: 'docket', key: 'remoteFilter' } as const,
-  'tous',
-)
+const flagFilters = atom({ plugin: 'docket', key: 'flagFilters' } as const, {})
 
 export const register: Register = (on, options) => {
   let timer: Timer | undefined
+  let settle: Timer | undefined
   applyOptions(options)
   const t = config.texts
 
@@ -173,13 +187,21 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     await $.command.register({
       name: 'docket',
-      description: t.commandDescription,
+      description: t.commandDescription(
+        statuses()
+          .map(status => status.id)
+          .join(', '),
+        flags()
+          .map(flag => flag.id)
+          .join(', '),
+      ),
     })
 
     const hostId = await findHostId($)
-    const byHost = hostId === undefined ? undefined : await $.store.get(`${HOST_KEY_PREFIX}${hostId}`)
-    const stored = isEntry(byHost) ? byHost : await $.store.get(storeKey(await $.session.id()))
-    if (isEntry(stored)) {
+    const byHost =
+      hostId === undefined ? null : readEntry(await $.store.get(`${HOST_KEY_PREFIX}${hostId}`))
+    const stored = byHost ?? readEntry(await $.store.get(storeKey(await $.session.id())))
+    if (stored !== null) {
       await persistEntry($, {
         ...stored,
         sessionId: await $.session.id(),
@@ -204,6 +226,8 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     timer?.cancel()
     timer = undefined
+    settle?.cancel()
+    settle = undefined
 
     return next(e)
   })
@@ -218,7 +242,25 @@ export const register: Register = (on, options) => {
         .catch(() => $.ui.toast(t.saveFailed))
     }
 
+    await refreshBoard($)
+
     return submitted
+  })
+
+  // A turn of this conversation changes its row: the board is read at once, then
+  // again once the app has written the turn's summary. Other conversations are
+  // seen on the next timed refresh, since a mod hears no other session's turns.
+  on('turn.complete', async ($, e, next) => {
+    const completed = await next(e)
+    if (e.agentId === undefined) {
+      await refreshBoard($)
+      settle?.cancel()
+      settle = $.clock.after(SETTLE_MS, () => {
+        void refreshBoard($)
+      })
+    }
+
+    return completed
   })
 
   on('command.run', { command: 'docket' }, async ($, e) => {
@@ -230,39 +272,33 @@ export const register: Register = (on, options) => {
       return { text: t.boardOpened }
     }
 
-    const perso = /^(?:perso|personal)(?:\s+(\S+))?$/i.exec(args)
-    if (perso !== null) {
+    const [word = '', value, ...rest] = args.split(/\s+/)
+    const flag = findFlag(word)
+    if (flag !== undefined && rest.length === 0) {
       const entry = await ensureEntry($)
-      const isPerso =
-        perso[1] === undefined ? entry.isPerso !== true : parseFlag(perso[1].toLowerCase())
-      if (isPerso === null) {
-        return { text: t.unknownFlag(perso[1] ?? '') }
+      const isOn = value === undefined ? entry.flags[flag.id] !== true : parseFlag(value.toLowerCase())
+      if (isOn === null) {
+        return { text: t.unknownFlag(value ?? '') }
       }
-      await setPerso($, isPerso)
+      await setFlag($, flag.id, isOn)
 
-      return { text: isPerso ? t.personalOn : t.personalOff }
+      return { text: t.flagSet(isOn ? flag.on : flag.off) }
     }
 
-    const remote = /^remote(?:\s+(\S+))?$/i.exec(args)
-    if (remote !== null) {
-      const entry = await ensureEntry($)
-      const isRemote =
-        remote[1] === undefined ? !entry.isRemote : parseFlag(remote[1].toLowerCase())
-      if (isRemote === null) {
-        return { text: t.unknownFlag(remote[1] ?? '') }
+    const status = findStatus(args)
+    if (status === undefined) {
+      return {
+        text: t.unknownStatus(
+          args,
+          statuses()
+            .map(one => one.id)
+            .join(', '),
+        ),
       }
-      await setRemote($, isRemote)
-
-      return { text: isRemote ? t.remoteOn : t.remoteOff }
     }
+    await setStatus($, status.id)
 
-    const status = parseStatus(args)
-    if (status === null) {
-      return { text: t.unknownStatus(args) }
-    }
-    await setStatus($, status)
-
-    return { text: t.statusSet(statusLabel(status)) }
+    return { text: t.statusSet(status.label) }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -273,37 +309,51 @@ export const register: Register = (on, options) => {
 
     // Before the first message there is no entry yet: show the band with nothing selected.
     const status = entry?.status ?? null
-    const isRemote = entry?.isRemote === true
-    const isPerso = entry?.isPerso === true
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const elements = $.ui.resolve(e)
+    const { Box, Button, Text } = elements
+    const Select =
+      'Select' in elements && statuses().length > MAX_STATUS_BUTTONS ? elements.Select : undefined
+    const isKnown = status !== null && findStatus(status)?.id === status
 
     return (
       <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
         <Text dimColor>{t.status}</Text>
-        {statuses().map(option => (
-          <Button
-            key={`status-${option.id}`}
-            label={option.label}
-            variant={option.id === status ? 'primary' : undefined}
-            dimColor={option.id !== status}
-            onPress={() => setStatus($, option.id)}
+        {Select === undefined ? (
+          statuses().map(option => (
+            <Button
+              key={`status-${option.id}`}
+              label={option.label}
+              variant={option.id === status ? 'primary' : undefined}
+              dimColor={option.id !== status}
+              onPress={() => setStatus($, option.id)}
+            />
+          ))
+        ) : (
+          <Select
+            key="status"
+            label={t.status}
+            options={[
+              ...(isKnown ? [] : [{ value: '', label: '—' }]),
+              ...statuses().map(option => ({ value: option.id, label: option.label })),
+            ]}
+            value={isKnown ? status : ''}
+            onSelect={(value: string) => (value === '' ? undefined : setStatus($, value))}
           />
-        ))}
-        <Text dimColor>·</Text>
-        <Button
-          key="remote"
-          label={t.remoteButton(isRemote)}
-          variant={isRemote ? 'primary' : undefined}
-          dimColor={!isRemote}
-          onPress={() => setRemote($, !isRemote)}
-        />
-        <Button
-          key="perso"
-          label={isPerso ? t.kinds.perso : t.kinds.job}
-          variant={isPerso ? 'primary' : undefined}
-          dimColor={!isPerso}
-          onPress={() => setPerso($, !isPerso)}
-        />
+        )}
+        {flags().length > 0 && <Text dimColor>·</Text>}
+        {flags().map(flag => {
+          const isOn = entry?.flags[flag.id] === true
+
+          return (
+            <Button
+              key={`flag-${flag.id}`}
+              label={isOn ? flag.on : flag.off}
+              variant={isOn ? 'primary' : undefined}
+              dimColor={!isOn}
+              onPress={() => setFlag($, flag.id, !isOn)}
+            />
+          )
+        })}
         <Text dimColor>·</Text>
         <Button
           key="board"
@@ -338,25 +388,26 @@ export const register: Register = (on, options) => {
       )
     const rows = buildRows(await read($, desktop), await read($, all))
     await read($, tick)
-    const filter = await read($, remoteFilter)
-    const kind = await read($, kindFilter)
-    const onlyStatus = await read($, statusFilter)
+    const chosen = await read($, flagFilters)
+    const flagFilter = (flag: FlagDef): FlagFilter => chosen[flag.id] ?? 'tous'
+    const onlyStatus = parseStatusFilter(await read($, statusFilter))
     const hereId = await $.session.id()
     const now = await $.clock.now()
-    const shown = rows.filter(row => matchesFilter(row, filter) && matchesKind(row, kind))
+    const shown = rows.filter(row => flags().every(flag => matchesFlag(row, flag, flagFilter(flag))))
     const withStatus = shown.filter(row => hasStatus(row))
     const withoutStatus = shown.filter(row => !hasStatus(row))
-    const groups: { id: Status | 'aucun'; label: string; rows: Row[] }[] = [
+    const groups: { id: string; label: string; rows: Row[] }[] = [
       ...statuses().map(status => ({
-        ...status,
+        id: status.id,
+        label: status.label,
         rows: withStatus.filter(row => row.entry?.status === status.id),
       })),
-      { id: 'aucun', label: t.noStatus, rows: withoutStatus },
+      { id: NO_STATUS, label: t.noStatus, rows: withoutStatus },
     ]
-    const isShown = (id: Status | 'aucun') =>
-      onlyStatus === id || (onlyStatus === 'tous' && id !== 'aucun')
+    const isShown = (id: string) =>
+      onlyStatus === id || (onlyStatus === ALL_STATUSES && id !== NO_STATUS)
     const statusOptions = [
-      { value: 'tous', label: t.all(withStatus.length) },
+      { value: ALL_STATUSES, label: t.all(withStatus.length) },
       ...groups.map(group => ({
         value: group.id,
         label: `${group.label} (${group.rows.length})`,
@@ -374,32 +425,30 @@ export const register: Register = (on, options) => {
                   label={option.label}
                   variant={onlyStatus === option.value ? 'primary' : undefined}
                   dimColor={onlyStatus !== option.value}
-                  onPress={() => saveFilters($, { status: parseStatusFilter(option.value) })}
+                  onPress={() => saveStatusFilter($, option.value)}
                 />
               ))}
             </Box>
-            <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-              {kinds().map(option => (
-                <Button
-                  key={`kind-${option.id}`}
-                  label={option.label}
-                  variant={option.id === kind ? 'primary' : undefined}
-                  dimColor={option.id !== kind}
-                  onPress={() => saveFilters($, { kind: option.id })}
-                />
-              ))}
-            </Box>
-            <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-              {remoteFilters().map(option => (
-                <Button
-                  key={`filter-${option.id}`}
-                  label={option.label}
-                  variant={option.id === filter ? 'primary' : undefined}
-                  dimColor={option.id !== filter}
-                  onPress={() => saveFilters($, { remote: option.id })}
-                />
-              ))}
-            </Box>
+            {flags().map(flag => (
+              <Box
+                key={`flag-filters-${flag.id}`}
+                flexDirection="row"
+                flexWrap="wrap"
+                alignItems="center"
+                gap={1}
+              >
+                {flagOptions(flag).map(option => (
+                  <Button
+                    key={`flag-${flag.id}-${option.value}`}
+                    label={option.label}
+                    variant={option.value === flagFilter(flag) ? 'primary' : undefined}
+                    dimColor={option.value !== flagFilter(flag)}
+                    onPress={() => saveFlagFilter($, flag.id, option.value)}
+                  />
+                ))}
+              </Box>
+            ))}
+            <Button key="refresh" label={t.refresh} dimColor onPress={() => refreshAll($)} />
           </Box>
         ) : (
           <Box flexDirection="column" alignItems="flex-start" gap={1}>
@@ -408,25 +457,18 @@ export const register: Register = (on, options) => {
               label={t.status}
               options={statusOptions}
               value={onlyStatus}
-              onSelect={(value: string) => saveFilters($, { status: parseStatusFilter(value) })}
+              onSelect={(value: string) => saveStatusFilter($, value)}
             />
-            <Select
-              key="kind-filter"
-              label={t.kind}
-              options={kinds().map(option => ({ value: option.id, label: option.label }))}
-              value={kind}
-              onSelect={(value: string) => saveFilters($, { kind: parseKindFilter(value) })}
-            />
-            <Box flexDirection="row" alignItems="center" gap={2}>
+            {flags().map(flag => (
               <Select
-                key="remote-filter"
-                label={t.remote}
-                options={remoteFilters().map(option => ({ value: option.id, label: option.label }))}
-                value={filter}
-                onSelect={(value: string) => saveFilters($, { remote: parseRemoteFilter(value) })}
+                key={`flag-filter-${flag.id}`}
+                label={flag.label}
+                options={flagOptions(flag)}
+                value={flagFilter(flag)}
+                onSelect={(value: string) => saveFlagFilter($, flag.id, parseFlagFilter(value))}
               />
-              <Button key="refresh" label={t.refresh} dimColor onPress={() => refreshAll($)} />
-            </Box>
+            ))}
+            <Button key="refresh" label={t.refresh} dimColor onPress={() => refreshAll($)} />
           </Box>
         )}
         {groups.every(group => !isShown(group.id) || group.rows.length === 0) && (
@@ -489,7 +531,7 @@ export const register: Register = (on, options) => {
                         size="footnote"
                         dimColor={row.attention !== 'blocked'}
                         color={row.attention === 'blocked' ? 'warning' : undefined}
-                        wrap="truncate-end"
+                        wrap={row.attention === 'blocked' ? 'wrap' : 'truncate-end'}
                       >
                         {formatSummary(row)}
                       </Text>
@@ -513,19 +555,20 @@ export const register: Register = (on, options) => {
   })
 }
 
-async function setStatus($: EngineInterface, status: Status): Promise<void> {
+async function setStatus($: EngineInterface, status: string): Promise<void> {
   const entry = await ensureEntry($)
   await saveEntry($, { ...entry, status })
 }
 
-async function setPerso($: EngineInterface, isPerso: boolean): Promise<void> {
+async function setFlag($: EngineInterface, id: string, isOn: boolean): Promise<void> {
   const entry = await ensureEntry($)
-  await saveEntry($, { ...entry, isPerso })
-}
-
-async function setRemote($: EngineInterface, isRemote: boolean): Promise<void> {
-  const entry = await ensureEntry($)
-  await saveEntry($, { ...entry, isRemote })
+  const flagsSet = { ...entry.flags }
+  if (isOn) {
+    flagsSet[id] = true
+  } else {
+    delete flagsSet[id]
+  }
+  await saveEntry($, { ...entry, flags: flagsSet })
 }
 
 async function ensureEntry($: EngineInterface): Promise<Entry> {
@@ -543,8 +586,8 @@ async function createEntry($: EngineInterface, text: string): Promise<Entry> {
     hostId: await findHostId($),
     label: toLabel(text),
     folder: basename(await $.session.cwd()),
-    status: 'en-cours',
-    isRemote: false,
+    status: statuses()[0]?.id ?? null,
+    flags: {},
     updatedAt: await $.clock.now(),
   }
 }
@@ -576,12 +619,20 @@ async function removeEntry($: EngineInterface, entry: Entry): Promise<void> {
 }
 
 // The board's filters, shared by every conversation so the board opens as it was left.
-type Filters = { status: StatusFilter; kind: KindFilter; remote: RemoteFilter }
+// A flag filter is kept by the flag's id, so it outlives a flag removed then added back.
+type Filters = { status: StatusFilter; flags: Record<string, FlagFilter> }
 
 const FILTERS_KEY = 'filters'
 
-async function saveFilters($: EngineInterface, change: Partial<Filters>): Promise<void> {
-  const filters = { ...(await readStoredFilters($)), ...change }
+async function saveStatusFilter($: EngineInterface, status: string): Promise<void> {
+  const filters = { ...(await readStoredFilters($)), status: parseStatusFilter(status) }
+  await $.store.set(FILTERS_KEY, filters)
+  await applyFilters($, filters)
+}
+
+async function saveFlagFilter($: EngineInterface, id: string, value: FlagFilter): Promise<void> {
+  const stored = await readStoredFilters($)
+  const filters = { ...stored, flags: { ...stored.flags, [id]: value } }
   await $.store.set(FILTERS_KEY, filters)
   await applyFilters($, filters)
 }
@@ -594,11 +645,8 @@ async function applyFilters($: EngineInterface, filters: Filters): Promise<void>
   if ((await read($, statusFilter)) !== filters.status) {
     await update($, statusFilter, () => filters.status)
   }
-  if ((await read($, kindFilter)) !== filters.kind) {
-    await update($, kindFilter, () => filters.kind)
-  }
-  if ((await read($, remoteFilter)) !== filters.remote) {
-    await update($, remoteFilter, () => filters.remote)
+  if (JSON.stringify(await read($, flagFilters)) !== JSON.stringify(filters.flags)) {
+    await update($, flagFilters, () => filters.flags)
   }
 }
 
@@ -607,10 +655,27 @@ async function readStoredFilters($: EngineInterface): Promise<Filters> {
   const value =
     typeof stored === 'object' && stored !== null ? (stored as Record<string, unknown>) : {}
 
+  const flagsKept: Record<string, FlagFilter> = {}
+  if (typeof value.flags === 'object' && value.flags !== null) {
+    for (const [id, one] of Object.entries(value.flags as Record<string, unknown>)) {
+      flagsKept[id] = parseFlagFilter(typeof one === 'string' ? one : '')
+    }
+  }
+  // Filters an earlier version kept for its two fixed flags.
+  const legacy: Record<string, { id: string; values: Record<string, FlagFilter> }> = {
+    kind: { id: 'perso', values: { perso: 'oui', job: 'non' } },
+    remote: { id: 'remote', values: { remote: 'oui', local: 'non' } },
+  }
+  for (const [field, { id, values }] of Object.entries(legacy)) {
+    const kept = typeof value[field] === 'string' ? values[value[field] as string] : undefined
+    if (kept !== undefined && flagsKept[id] === undefined) {
+      flagsKept[id] = kept
+    }
+  }
+
   return {
-    status: parseStatusFilter(typeof value.status === 'string' ? value.status : 'tous'),
-    kind: parseKindFilter(typeof value.kind === 'string' ? value.kind : 'tous'),
-    remote: parseRemoteFilter(typeof value.remote === 'string' ? value.remote : 'tous'),
+    status: typeof value.status === 'string' ? value.status : ALL_STATUSES,
+    flags: flagsKept,
   }
 }
 
@@ -630,8 +695,8 @@ async function refreshAll($: EngineInterface): Promise<void> {
   const byHost = new Map<string, Entry>()
   const legacy: Entry[] = []
   for (const key of await $.store.keys()) {
-    const value = await $.store.get(key)
-    if (!isEntry(value)) {
+    const value = readEntry(await $.store.get(key))
+    if (value === null) {
       continue
     }
     if (key.startsWith(HOST_KEY_PREFIX)) {
@@ -967,11 +1032,12 @@ function glyphSvg(id: string, project: string): string {
   return svg
 }
 
-// The project a row belongs to, by the rules the sidebar groups follow: the
-// perso flag, the folder, then the ticket a title names (work done in scratch folders).
+// The project a row belongs to: a flag set on it that has a color, the folder,
+// then the ticket a title names (work done in scratch folders).
 function findProject(row: Row): string {
-  if (row.entry?.isPerso === true) {
-    return 'perso'
+  const flagged = flags().find(flag => row.entry?.flags[flag.id] === true && flag.id in config.hues)
+  if (flagged !== undefined) {
+    return flagged.id
   }
   const folder = row.folder.toLowerCase()
   if (folder in config.hues) {
@@ -1046,6 +1112,82 @@ function applyOptions(options: Readonly<Record<string, unknown>>): void {
   config.texts = options.language === 'fr' ? TEXTS.fr : TEXTS.en
   config.tickets = parseTicketRules(options.ticketLinks)
   config.hues = parseHues(options.projectColors)
+  config.statuses = parseStatuses(options.statuses) ?? [...config.texts.statuses]
+  config.flags = parseFlags(options.flags, config.statuses) ?? [...config.texts.flags]
+}
+
+// An id is a short word: letters, digits and dashes.
+function parseId(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,31}$/i.test(value)
+    ? value.toLowerCase()
+    : undefined
+}
+
+function readText(record: Record<string, unknown>, field: string): string | undefined {
+  const value = record[field]
+
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+}
+
+// The statuses the options list, or undefined to keep the defaults. A status
+// without a valid id or label is left out; so is a repeated id.
+function parseStatuses(value: unknown): StatusDef[] | undefined {
+  const list = parseJson(value)
+  if (!Array.isArray(list)) {
+    return undefined
+  }
+  const defs: StatusDef[] = []
+  for (const item of list) {
+    const record = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
+    const id = parseId(record.id)
+    const isReserved = id === ALL_STATUSES || id === NO_STATUS
+    if (id === undefined || isReserved || defs.some(one => one.id === id)) {
+      continue
+    }
+    const known = config.texts.statuses.find(one => one.id === id)
+    const label = readText(record, 'label') ?? known?.label
+    if (label === undefined) {
+      continue
+    }
+    defs.push({ id, label, aliases: known?.aliases ?? [] })
+  }
+
+  return defs.length > 0 ? defs : undefined
+}
+
+// The flags the options list, or undefined to keep the defaults; [] means no flag.
+// A flag whose id is also a status id is left out: the command could not tell them apart.
+function parseFlags(value: unknown, statusDefs: readonly StatusDef[]): FlagDef[] | undefined {
+  const list = parseJson(value)
+  if (!Array.isArray(list)) {
+    return undefined
+  }
+  const defs: FlagDef[] = []
+  for (const item of list) {
+    const record = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
+    const id = parseId(record.id)
+    const isTaken = statusDefs.some(one => one.id === id) || defs.some(one => one.id === id)
+    if (id === undefined || isTaken) {
+      continue
+    }
+    // A default flag listed by its id alone keeps its words.
+    const known = readText(record, 'label') === undefined
+      ? config.texts.flags.find(one => one.id === id)
+      : undefined
+    const label = readText(record, 'label') ?? known?.label
+    if (label === undefined) {
+      continue
+    }
+    defs.push({
+      id,
+      label,
+      on: readText(record, 'on') ?? known?.on ?? label,
+      off: readText(record, 'off') ?? known?.off ?? config.texts.not(label),
+      aliases: config.texts.flags.find(one => one.id === id)?.aliases ?? [],
+    })
+  }
+
+  return defs
 }
 
 function parseJson(value: unknown): unknown {
@@ -1134,29 +1276,20 @@ async function findFirstPrompt($: EngineInterface): Promise<string | null> {
   return first === undefined ? null : first.text
 }
 
+// A status the options no longer list counts as none; it comes back with the status.
 function hasStatus(row: Row): boolean {
-  return row.entry !== undefined && row.entry.status !== null
+  const status = row.entry?.status ?? null
+
+  return status !== null && findStatus(status)?.id === status
 }
 
-function matchesKind(row: Row, kind: KindFilter): boolean {
-  const isPerso = row.entry?.isPerso === true
-  if (kind === 'perso') {
-    return isPerso
+function matchesFlag(row: Row, flag: FlagDef, filter: FlagFilter): boolean {
+  const isOn = row.entry?.flags[flag.id] === true
+  if (filter === 'oui') {
+    return isOn
   }
-  if (kind === 'job') {
-    return !isPerso
-  }
-
-  return true
-}
-
-function matchesFilter(row: Row, filter: RemoteFilter): boolean {
-  const isRemote = row.entry?.isRemote === true
-  if (filter === 'remote') {
-    return isRemote
-  }
-  if (filter === 'local') {
-    return !isRemote
+  if (filter === 'non') {
+    return !isOn
   }
 
   return true
@@ -1167,11 +1300,10 @@ function describe(row: Row, now: number): string {
   if (row.pr !== undefined) {
     parts.push(`PR #${row.pr.number} ${formatPrState(row.pr.state)}`.trim())
   }
-  if (row.entry?.isPerso === true) {
-    parts.push(config.texts.personalTag)
-  }
-  if (row.entry?.isRemote === true) {
-    parts.push(config.texts.remoteTag)
+  for (const flag of flags()) {
+    if (row.entry?.flags[flag.id] === true) {
+      parts.push(flag.on.toLowerCase())
+    }
   }
   parts.push(row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : config.texts.never)
 
@@ -1209,43 +1341,36 @@ function formatAge(ms: number): string {
   return config.texts.daysAgo(Math.floor(hours / 24))
 }
 
-function parseStatus(text: string): Status | null {
-  const word = text
+// A status by its id, its label or an alias, in any case and with or without accents.
+function findStatus(text: string): StatusDef | undefined {
+  const word = toWord(text)
+
+  return statuses().find(status =>
+    [status.id, status.label, ...status.aliases].some(name => toWord(name) === word),
+  )
+}
+
+function findFlag(text: string): FlagDef | undefined {
+  const word = toWord(text)
+
+  return flags().find(flag => [flag.id, ...flag.aliases].some(name => toWord(name) === word))
+}
+
+function toWord(text: string): string {
+  return text
+    .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[\s_]+/g, '-')
-  const aliases: Record<string, Status> = {
-    'en-cours': 'en-cours',
-    encours: 'en-cours',
-    cours: 'en-cours',
-    'in-progress': 'en-cours',
-    progress: 'en-cours',
-    'en-attente': 'en-attente',
-    attente: 'en-attente',
-    waiting: 'en-attente',
-    termine: 'termine',
-    fini: 'termine',
-    done: 'termine',
-    recycle: 'recycle',
-    recycled: 'recycle',
-  }
-
-  return aliases[word] ?? null
 }
 
 function parseStatusFilter(value: string): StatusFilter {
-  return value === 'aucun' || STATUS_IDS.some(one => one === value)
-    ? (value as StatusFilter)
-    : 'tous'
+  return value === NO_STATUS || findStatus(value)?.id === value ? value : ALL_STATUSES
 }
 
-function parseKindFilter(value: string): KindFilter {
-  return KIND_IDS.find(one => one === value) ?? 'tous'
-}
-
-function parseRemoteFilter(value: string): RemoteFilter {
-  return REMOTE_IDS.find(one => one === value) ?? 'tous'
+function parseFlagFilter(value: string): FlagFilter {
+  return FLAG_FILTERS.find(one => one === value) ?? 'tous'
 }
 
 function parseFlag(text: string): boolean | null {
@@ -1259,26 +1384,47 @@ function parseFlag(text: string): boolean | null {
   return null
 }
 
-function statusLabel(status: Status): string {
-  return config.texts.statuses[status]
-}
-
-function isEntry(value: unknown): value is Entry {
+// An entry as the store keeps it, or null. Statuses the options do not list are
+// kept as they are; the two flags of earlier versions move into `flags`.
+function readEntry(value: unknown): Entry | null {
   if (typeof value !== 'object' || value === null) {
-    return false
+    return null
   }
   const entry = value as Record<string, unknown>
-
-  return (
+  const isValid =
     typeof entry.sessionId === 'string' &&
     typeof entry.label === 'string' &&
     typeof entry.folder === 'string' &&
-    typeof entry.isRemote === 'boolean' &&
     typeof entry.updatedAt === 'number' &&
     (entry.hostId === undefined || typeof entry.hostId === 'string') &&
-    (entry.isPerso === undefined || typeof entry.isPerso === 'boolean') &&
-    (entry.status === null || STATUS_IDS.some(one => one === entry.status))
-  )
+    (entry.status === null || typeof entry.status === 'string')
+  if (!isValid) {
+    return null
+  }
+  const flagsSet: Record<string, boolean> = {}
+  if (typeof entry.flags === 'object' && entry.flags !== null) {
+    for (const [id, isOn] of Object.entries(entry.flags as Record<string, unknown>)) {
+      if (isOn === true) {
+        flagsSet[id] = true
+      }
+    }
+  }
+  if (entry.isRemote === true) {
+    flagsSet.remote = true
+  }
+  if (entry.isPerso === true) {
+    flagsSet.perso = true
+  }
+
+  return {
+    sessionId: entry.sessionId as string,
+    ...(entry.hostId === undefined ? {} : { hostId: entry.hostId as string }),
+    label: entry.label as string,
+    folder: entry.folder as string,
+    status: entry.status as string | null,
+    flags: flagsSet,
+    updatedAt: entry.updatedAt as number,
+  }
 }
 
 // The first prompt can carry the app's own markup: notes it inserts, and the

@@ -1,10 +1,11 @@
-export type Status = 'en-cours' | 'en-attente' | 'termine' | 'recycle'
+// A status id from the `statuses` option, or one of the defaults.
+export type Status = string
 
-export type StatusFilter = Status | 'tous' | 'aucun'
+// A status id, 'tous' for every status, or 'aucun' for conversations with none.
+export type StatusFilter = string
 
-export type RemoteFilter = 'tous' | 'remote' | 'local'
-
-export type KindFilter = 'tous' | 'job' | 'perso'
+// What a flag's filter keeps: every row, the rows with the flag set, or without it.
+export type FlagFilter = 'tous' | 'oui' | 'non'
 
 export type Entry = {
   sessionId: string
@@ -13,8 +14,8 @@ export type Entry = {
   folder: string
   // null: flags set on a conversation that has no status yet.
   status: Status | null
-  isRemote: boolean
-  isPerso?: boolean
+  // The flags set on the conversation, by flag id; a flag not set is left out.
+  flags: Record<string, boolean>
   updatedAt: number
 }
 
@@ -41,8 +42,8 @@ declare module 'claude-code' {
       all: Shaped<Entry[]>
       desktop: Shaped<DesktopSession[]>
       statusFilter: StatusFilter
-      remoteFilter: RemoteFilter
-      kindFilter: KindFilter
+      // By flag id; a flag left out keeps every row.
+      flagFilters: Record<string, FlagFilter>
       // Bumped on each automatic refresh while the board is shown, so its ages redraw.
       tick: number
     }

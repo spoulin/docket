@@ -1,6 +1,6 @@
 {
   "name": "docket",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A status and remote and personal flags for each conversation, with a board of all of them",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -8,7 +8,10 @@
       "type": "string",
       "title": "Language",
       "description": "Language of the band and the board.",
-      "options": ["en", "fr"],
+      "options": [
+        "en",
+        "fr"
+      ],
       "default": "en"
     },
     "ticketLinks": {
@@ -21,6 +24,18 @@
       "type": "string",
       "title": "Project colors",
       "description": "JSON map from a project (folder name, or \"perso\" for personal conversations) to a hue from 0 to 359, for example {\"my-repo\": 212}. Other projects get a hue from their name.",
+      "default": ""
+    },
+    "statuses": {
+      "type": "string",
+      "title": "Statuses",
+      "description": "JSON list of the statuses, in order: [{\"id\": \"todo\", \"label\": \"To do\"}, {\"id\": \"doing\", \"label\": \"Doing\"}]. The first one is given on a conversation's first message. An id is letters, digits and dashes. Empty: in progress, waiting, done, recycled.",
+      "default": ""
+    },
+    "flags": {
+      "type": "string",
+      "title": "Flags",
+      "description": "JSON list of yes-or-no flags, each a band button and a board filter: [{\"id\": \"client\", \"label\": \"Client\", \"on\": \"Client\", \"off\": \"Internal\"}]. on and off are optional. Empty: remote and personal. [] for no flag.",
       "default": ""
     }
   }

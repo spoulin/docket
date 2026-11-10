@@ -140,8 +140,8 @@ test('the first prompt files the conversation as in progress', FR, async ($, on)
     expect((await ui.find({ type: 'Button', key: 'status-en-cours' }))?.props.variant).toBe(
       'primary',
     )
-    expect((await ui.find({ type: 'Button', key: 'remote' }))?.props.label).toBe(
-      'Remote : non',
+    expect((await ui.find({ type: 'Button', key: 'flag-remote' }))?.props.label).toBe(
+      'Pas remote',
     )
     await ui.unmount()
   }
@@ -155,17 +155,17 @@ test('the band changes the status and the remote flag', FR, async ($, on) => {
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   await ui.press({ key: 'status-recycle' })
-  await ui.press({ key: 'remote' })
+  await ui.press({ key: 'flag-remote' })
 
   expect((await ui.find({ type: 'Button', key: 'status-recycle' }))?.props.variant).toBe(
     'primary',
   )
-  expect((await ui.find({ type: 'Button', key: 'remote' }))?.props.label).toBe(
-    'Remote : oui',
+  expect((await ui.find({ type: 'Button', key: 'flag-remote' }))?.props.label).toBe(
+    'Remote',
   )
   expect(store.get('host:local_here')).toMatchObject({
     status: 'recycle',
-    isRemote: true,
+    flags: { remote: true },
   })
   await ui.unmount()
 })
@@ -196,11 +196,11 @@ test('the command sets the status and the flag', FR, async ($, on) => {
   const bad = await $.command.run({ command: 'docket', args: 'plus tard' })
 
   expect(set.text).toBe('Statut : Terminé.')
-  expect(flag.text).toBe('Remote : oui.')
+  expect(flag.text).toBe('Remote.')
   expect(bad.text).toContain('Statut inconnu "plus tard".')
   expect(store.get('host:local_here')).toMatchObject({
     status: 'termine',
-    isRemote: true,
+    flags: { remote: true },
   })
 })
 
@@ -215,7 +215,7 @@ test('the board groups the conversations and filters on remote', FR, async ($, o
   expect(await ui.find({ type: 'Text', text: /^En attente \(1\)$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /my-app · remote · jamais/ })).toBeTruthy()
 
-  await ui.select({ key: 'remote-filter', value: 'remote' })
+  await ui.select({ key: 'flag-filter-remote', value: 'oui' })
   expect(await ui.find({ type: 'Text', text: /^En cours/ })).toBeFalsy()
   expect(await ui.find({ type: 'Text', text: /^En attente \(1\)$/ })).toBeTruthy()
 
@@ -320,21 +320,21 @@ test('the perso flag separates personal conversations from job ones', FR, async 
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const set = await $.command.run({ command: 'docket', args: 'perso' })
-  expect(set.text).toBe('Perso : oui.')
-  expect(store.get('host:local_here')).toMatchObject({ isPerso: true, status: 'en-cours' })
+  expect(set.text).toBe('Perso.')
+  expect(store.get('host:local_here')).toMatchObject({ flags: { perso: true }, status: 'en-cours' })
 
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  await band.press({ key: 'perso' })
-  expect((await band.find({ type: 'Button', key: 'perso' }))?.props.label).toBe('Job')
+  await band.press({ key: 'flag-perso' })
+  expect((await band.find({ type: 'Button', key: 'flag-perso' }))?.props.label).toBe('Job')
   await band.unmount()
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await ui.select({ key: 'kind-filter', value: 'perso' })
+  await ui.select({ key: 'flag-filter-perso', value: 'oui' })
   await ui.select({ key: 'status-filter', value: 'aucun' })
   expect(await ui.find({ type: 'Markdown', key: 'open-bws' })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /BWS2 · perso|my-app · perso/ })).toBeTruthy()
 
-  await ui.select({ key: 'kind-filter', value: 'job' })
+  await ui.select({ key: 'flag-filter-perso', value: 'non' })
   expect(await ui.find({ type: 'Markdown', key: 'open-bws' })).toBeFalsy()
   await ui.unmount()
 })
@@ -349,10 +349,10 @@ test('the board opens with the filters last chosen in any conversation', FR, asy
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await ui.find({ type: 'Select', key: 'status-filter' }))?.props.value).toBe('en-attente')
-  expect((await ui.find({ type: 'Select', key: 'remote-filter' }))?.props.value).toBe('remote')
+  expect((await ui.find({ type: 'Select', key: 'flag-filter-remote' }))?.props.value).toBe('oui')
 
-  await ui.select({ key: 'kind-filter', value: 'perso' })
-  expect(store.get('filters')).toEqual({ status: 'en-attente', kind: 'perso', remote: 'remote' })
+  await ui.select({ key: 'flag-filter-perso', value: 'oui' })
+  expect(store.get('filters')).toEqual({ status: 'en-attente', flags: { perso: 'oui', remote: 'oui' } })
   await ui.unmount()
 })
 
@@ -582,7 +582,7 @@ test('with no options the mod speaks English and links no ticket', async ($, on)
   expect((await band.find({ type: 'Button', key: 'status-en-cours' }))?.props.label).toBe(
     'In progress',
   )
-  expect((await band.find({ type: 'Button', key: 'perso' }))?.props.label).toBe('Work')
+  expect((await band.find({ type: 'Button', key: 'flag-perso' }))?.props.label).toBe('Work')
   await band.unmount()
 
   expect((await $.command.run({ command: 'docket', args: 'waiting' })).text).toBe(
@@ -608,5 +608,93 @@ test('a ticket rule that does not parse is left out', { options: { ticketLinks: 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Markdown', key: 'ticket-t' })).toBeFalsy()
   expect((await ui.find({ type: 'Markdown', key: 'open-t' }))?.props.text).toMatch(/T\\-12 fix/)
+  await ui.unmount()
+})
+
+test(
+  'statuses and flags come from the options',
+  {
+    options: {
+      statuses: JSON.stringify([
+        { id: 'todo', label: 'To do' },
+        { id: 'doing', label: 'Doing' },
+        { id: 'tous', label: 'Reserved' },
+        { id: 'bad id', label: 'Bad' },
+      ]),
+      flags: JSON.stringify([
+        { id: 'client', label: 'Client', on: 'Client', off: 'Internal' },
+        { id: 'urgent', label: 'Urgent' },
+        { id: 'todo', label: 'Clash' },
+      ]),
+    },
+  },
+  async ($, on) => {
+    const store = mockEngine(
+      on,
+      {
+        // A status the options no longer list, kept as it was.
+        'host:local_other': { ...OTHER, status: 'en-attente' },
+        filters: { status: 'tous', kind: 'perso', remote: 'remote' },
+      },
+      { 'local_other.json': desktopRecord('other', 'Old one') },
+    )
+
+    await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+    await $.prompt.submit({ text: 'Start' })
+    expect(store.get('host:local_here')).toMatchObject({ status: 'todo', flags: {} })
+
+    const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await band.find({ type: 'Button', key: 'status-tous' })).toBeFalsy()
+    expect(await band.find({ type: 'Button', key: 'status-bad id' })).toBeFalsy()
+    expect(await band.find({ type: 'Button', key: 'flag-todo' })).toBeFalsy()
+    expect(await band.find({ type: 'Button', key: 'flag-remote' })).toBeFalsy()
+    expect((await band.find({ type: 'Button', key: 'flag-client' }))?.props.label).toBe('Internal')
+    expect((await band.find({ type: 'Button', key: 'flag-urgent' }))?.props.label).toBe('Not urgent')
+    await band.press({ key: 'flag-client' })
+    await band.unmount()
+
+    expect((await $.command.run({ command: 'docket', args: 'Doing' })).text).toBe('Status: Doing.')
+    expect((await $.command.run({ command: 'docket', args: 'urgent' })).text).toBe('Urgent.')
+    expect(store.get('host:local_here')).toMatchObject({
+      status: 'doing',
+      flags: { client: true, urgent: true },
+    })
+
+    // The old row has a status the options do not list: it shows under no status.
+    await $.command.run({ command: 'docket', args: '' })
+    const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+    const statusFilter = await ui.find({ type: 'Select', key: 'status-filter' })
+    expect(statusFilter?.props.options.map(option => option.value)).toEqual([
+      'tous',
+      'todo',
+      'doing',
+      'aucun',
+    ])
+    await ui.select({ key: 'flag-filter-client', value: 'oui' })
+    expect(store.get('filters')).toMatchObject({ flags: { client: 'oui' } })
+    expect(store.get('host:local_other')).toMatchObject({ status: 'en-attente' })
+    await ui.unmount()
+  },
+)
+
+test('a turn of this conversation redraws the board at once', FR, async ($, on) => {
+  const files: Record<string, string> = { 'local_here.json': desktopRecord('here', 'Ici') }
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, files)
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^Nouveau titre$/ })).toBeFalsy()
+
+  files['local_two.json'] = desktopRecord('two', 'Nouveau titre')
+  await $.turn.complete({
+    answer: 'ok',
+    durationMs: 1,
+    isAborted: false,
+    turnId: 't1',
+    reason: 'answer',
+  } as never)
+  expect(await ui.find({ type: 'Markdown', key: 'open-two' })).toBeTruthy()
   await ui.unmount()
 })
