@@ -22,6 +22,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
   Untracked files and merge commits are left out, and a squash-merged branch without a pull request reads as not merged.
 - A small spinner left of the age marks a conversation where Claude is working (`⋯` in the terminal).
   It stops at most 5 seconds after the turn ends, and after 10 minutes without activity (an app that quit during a turn).
+- With a sync folder, the board also shows the conversations of your other computers, named after them (`💻 Office`): see [Sharing between computers](#sharing-between-computers).
 
 > [!WARNING]
 > In the desktop app, the board reads the app's own conversation records and opens conversations through the app's own links.
@@ -91,6 +92,8 @@ A new conversation reads them.
 | `filters` | A JSON list of the board's filters, in order: `status`, `period` and flag ids. A filter left out is hidden. | status, period, then every flag |
 | `ticketLinks` | A JSON list of rules that turn a ticket named in a title into a link. | none |
 | `projectColors` | A JSON map from a project to a hue from 0 to 359. | a hue from the project's name |
+| `syncFolder` | A folder your computers share, to see each other's conversations. | none: nothing is shared |
+| `machineName` | How your other computers name this one. | the computer's own name |
 
 Each option that takes JSON takes it as a string: in `settings.json`, escape its quotes.
 
@@ -164,6 +167,21 @@ The first rule that matches a title wins.
 
 A project is the conversation's folder name, or the id of a flag set on it.
 A flag with a color takes precedence: `{"my-repo": 212, "perso": 285}` colors personal conversations purple wherever they are.
+
+### Sharing between computers
+
+Set `syncFolder` to the same synced folder on each computer, for example in iCloud Drive:
+
+```json
+"syncFolder": "~/Library/Mobile Documents/com~apple~CloudDocs/docket"
+```
+
+- Each computer writes one file of its own there, `machines/<id>.json`: its conversations, their statuses, flags and notes, and its git signs. It reads the others' files and never writes them.
+- The board shows the other computers' conversations in their groups, named after their computer, with their spinner and git signs. A click does not open them: they run on the other computer.
+- A conversation's status is set where it runs, in its band or with `/docket`.
+- What shows up depends on the sync service: a few seconds, sometimes more.
+- iCloud can take files off the disk to save space: in the Finder, right-click the folder and pick Keep Downloaded.
+- Any synced folder works the same: Dropbox, Google Drive, OneDrive, Syncthing.
 
 ## Platforms
 

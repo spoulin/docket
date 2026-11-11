@@ -1,6 +1,6 @@
 {
   "name": "docket",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "A status and remote and personal flags for each conversation, with a board of all of them",
   "author": {
     "name": "spoulin",
@@ -60,6 +60,18 @@
       "type": "string",
       "title": "Board filters",
       "description": "JSON list of the board's filters, in order, filled row by row in two columns: \"status\", \"period\" and flag ids, for example [\"status\", \"perso\", \"period\", \"remote\"]. A filter left out is hidden and filters nothing. Empty: status, period, then every flag.",
+      "default": ""
+    },
+    "syncFolder": {
+      "type": "string",
+      "title": "Sync folder",
+      "description": "A folder your computers share, such as one in iCloud Drive or Dropbox: ~/Library/Mobile Documents/com~apple~CloudDocs/docket. Each computer writes its conversations there and the board shows the others'. Empty: nothing is shared.",
+      "default": ""
+    },
+    "machineName": {
+      "type": "string",
+      "title": "Computer name",
+      "description": "How the other computers name this one on their board. Empty: the computer's own name.",
       "default": ""
     }
   }

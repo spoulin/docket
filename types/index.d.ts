@@ -48,6 +48,16 @@ export type DesktopSession = {
 // whether the default branch holds it (or its pull request was merged).
 export type GitState = { isDirty: boolean; unpushed: number; isMerged: boolean }
 
+// What another computer published in the sync folder: its conversations, their
+// statuses and what its git said of their branches.
+export type RemoteMachine = {
+  machineId: string
+  name: string
+  sessions: DesktopSession[]
+  entries: Entry[]
+  git: Record<string, GitState>
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'docket': {
@@ -55,6 +65,8 @@ declare module 'claude-code' {
       all: Shaped<Entry[]>
       desktop: Shaped<DesktopSession[]>
       git: Record<string, GitState>
+      // The other computers that share the sync folder.
+      remote: Shaped<RemoteMachine[]>
       statusFilter: StatusFilter
       period: Period
       search: string

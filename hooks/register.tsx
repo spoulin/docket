@@ -1,7 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, Timer } from 'claude-code'
 
-import type { DesktopSession, Entry, FlagFilter, GitState, Period, StatusFilter } from '../types'
+import type {
+  DesktopSession,
+  Entry,
+  FlagFilter,
+  GitState,
+  Period,
+  RemoteMachine,
+  StatusFilter,
+} from '../types'
 
 const PANE = 'docket'
 const KEY_PREFIX = 'session:'
@@ -186,6 +194,9 @@ const config: {
   flags: FlagDef[]
   statusControl: StatusControl
   filters: string[] | undefined
+  // A folder the person's computers share (iCloud Drive, Dropbox...); none: no sharing.
+  syncFolder: string | undefined
+  machineName: string | undefined
 } = {
   texts: TEXTS.en,
   tickets: [],
@@ -194,6 +205,8 @@ const config: {
   flags: [...TEXTS.en.flags],
   statusControl: 'auto',
   filters: undefined,
+  syncFolder: undefined,
+  machineName: undefined,
 }
 
 // The board's filters by id: the status, the period, then each flag by its id.
@@ -255,6 +268,10 @@ const desktop = atom({ plugin: 'docket', key: 'desktop' } as const, [], {
 })
 // What git says of each branch a conversation committed on, by repository and branch.
 const gitStates = atom({ plugin: 'docket', key: 'git' } as const, {} as Record<string, GitState>)
+// What the person's other computers published in the sync folder.
+const remote = atom({ plugin: 'docket', key: 'remote' } as const, [] as RemoteMachine[], {
+  shape: 'remote-1',
+})
 const statusFilter = atom(
   { plugin: 'docket', key: 'statusFilter' } as const,
   'tous' as StatusFilter,
@@ -477,7 +494,7 @@ export const register: Register = (on, options) => {
         ))
       )
     const hostId = await findHostId($)
-    const waiting = (await read($, desktop)).filter(
+    const waiting = (await readAllSessions($)).filter(
       session => session.attention === 'blocked' && !session.isArchived && session.hostId !== hostId,
     ).length
 
@@ -552,7 +569,7 @@ export const register: Register = (on, options) => {
           <Svg source={SEPARATOR_SVG} alt={t.separator} height={1} width={2000} />
         </Box>
       )
-    const rows = buildRows(await read($, desktop), await read($, all))
+    const rows = buildAllRows(await read($, desktop), await read($, all), await read($, remote))
     const git = await read($, gitStates)
     await read($, tick)
     const chosen = await read($, flagFilters)
@@ -632,7 +649,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column" flexGrow={1} flexShrink={1}>
             <Box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={2}>
               <Box flexDirection="column" flexShrink={1}>
-                {row.key !== hereId && row.hostId !== undefined ? (
+                {row.key !== hereId && row.hostId !== undefined && row.machine === undefined ? (
                   <Markdown
                     key={`open-${row.key}`}
                     text={`**[${escapeMarkdown(row.title)}](${conversationHref(row.hostId)})**`}
@@ -680,10 +697,10 @@ export const register: Register = (on, options) => {
                 {row.key === hereId ? `${t.here} · ${describe(row)}` : describe(row)}
               </Text>
             </Box>
-            {describeGit(row, git).length > 0 && (
+            {describeGit(row, row.machine?.git ?? git).length > 0 && (
               // What git still holds, on a line of its own: mark, count and words.
               <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-                {describeGit(row, git).map((sign, index) => (
+                {describeGit(row, row.machine?.git ?? git).map((sign, index) => (
                   <Box key={`git-${row.key}-${sign.word}`} flexDirection="row" gap={1}>
                     {index > 0 && (
                       <Text dimColor size="caption">
@@ -696,7 +713,7 @@ export const register: Register = (on, options) => {
               </Box>
             )}
           </Box>
-          {!row.isDesktop && row.key !== hereId && (
+          {!row.isDesktop && row.key !== hereId && row.machine === undefined && (
             <Button
               key={`remove-${row.key}`}
               label={t.remove}
@@ -1002,6 +1019,8 @@ async function persistEntry($: EngineInterface, entry: Entry): Promise<void> {
     ...list.filter(one => entryKey(one) !== entryKey(entry)),
     entry,
   ])
+  // The other computers see the new status without waiting for a refresh.
+  await syncMachines($).catch(() => undefined)
 }
 
 async function storeEntry($: EngineInterface, entry: Entry): Promise<void> {
@@ -1015,6 +1034,7 @@ async function removeEntry($: EngineInterface, entry: Entry): Promise<void> {
   await $.store.delete(entryKey(entry))
   await $.store.delete(storeKey(entry.sessionId))
   await update($, all, list => list.filter(one => entryKey(one) !== entryKey(entry)))
+  await syncMachines($).catch(() => undefined)
 }
 
 // The board's filters, shared by every conversation so the board opens as it was left.
@@ -1141,7 +1161,7 @@ async function refreshBoard($: EngineInterface): Promise<void> {
     await update($, tick, value => value + 1)
   }
   const now = await $.clock.now()
-  const isSpinning = (await read($, desktop)).some(
+  const isSpinning = (await readAllSessions($)).some(
     session => !session.isArchived && isRunning(session, now),
   )
   if (isShown && isSpinning) {
@@ -1217,6 +1237,244 @@ async function refreshAll($: EngineInterface): Promise<void> {
     await update($, desktop, () => sessions)
   }
   await loadGit($)
+  await syncMachines($).catch(() => undefined)
+}
+
+// Sharing between computers: each one writes a single file of its own in the sync
+// folder, machines/<id>.json, with its conversations, their statuses and its git
+// answers, and reads the others'. No computer writes another's file: there is
+// nothing to merge. A conversation's status is set where the conversation runs.
+const MACHINE_KEY = 'machine'
+let machineId: string | undefined
+let machineName: string | undefined
+// The text this conversation last wrote, so an unchanged file is not written again.
+let lastPublished: string | undefined
+// A parsed file per path, kept while the file's time does not change.
+const machineFiles = new Map<string, { mtimeMs: number; machine: RemoteMachine | null }>()
+
+// This computer's conversations, then those the other computers shared.
+async function readAllSessions($: EngineInterface): Promise<DesktopSession[]> {
+  return [...(await read($, desktop)), ...(await read($, remote)).flatMap(machine => machine.sessions)]
+}
+
+async function syncMachines($: EngineInterface): Promise<void> {
+  if (config.syncFolder === undefined) {
+    return
+  }
+  await publishOwn($)
+  const machines = await readMachines($)
+  if (JSON.stringify(await read($, remote)) !== JSON.stringify(machines)) {
+    await update($, remote, () => machines)
+  }
+}
+
+async function findSyncFolder($: EngineInterface): Promise<string | undefined> {
+  const folder = config.syncFolder
+  if (folder === undefined) {
+    return undefined
+  }
+  if (folder === '~' || folder.startsWith('~/')) {
+    const home = await $.env.get('HOME')
+
+    return home === undefined ? undefined : `${home}${folder.slice(1)}`
+  }
+
+  return folder
+}
+
+// This computer's id: drawn once, then kept in the store.
+async function findMachineId($: EngineInterface): Promise<string> {
+  if (machineId !== undefined) {
+    return machineId
+  }
+  const stored = await $.store.get(MACHINE_KEY)
+  const kept = typeof stored === 'object' && stored !== null ? (stored as { id?: unknown }).id : undefined
+  if (typeof kept === 'string' && /^[a-z0-9-]{8,64}$/i.test(kept)) {
+    machineId = kept
+  } else {
+    machineId = crypto.randomUUID()
+    await $.store.set(MACHINE_KEY, { id: machineId })
+  }
+
+  return machineId
+}
+
+// The name the other computers show: the option, else the computer's own name.
+async function findMachineName($: EngineInterface): Promise<string> {
+  if (config.machineName !== undefined) {
+    return config.machineName
+  }
+  if (machineName !== undefined) {
+    return machineName
+  }
+  const platform = await findPlatform($)
+  const asked =
+    platform === 'windows'
+      ? await $.env.get('COMPUTERNAME')
+      : await $.process
+          .run(platform === 'mac' ? ['scutil', '--get', 'ComputerName'] : ['hostname'], {
+            timeoutMs: 5_000,
+          })
+          .then(ran => (ran.exitCode === 0 ? ran.stdout.trim() : undefined))
+          .catch(() => undefined)
+  machineName = asked === undefined || asked === '' ? 'Mac' : asked.slice(0, 40)
+
+  return machineName
+}
+
+async function publishOwn($: EngineInterface): Promise<void> {
+  const folder = await findSyncFolder($)
+  // Before this conversation first read the records, it would publish an empty list.
+  if (folder === undefined || lastRefreshAt === 0) {
+    return
+  }
+  const sessions = (await read($, desktop)).filter(session => !session.isArchived)
+  const hostIds = new Set(sessions.map(session => session.hostId))
+  const archived = new Set(
+    (await read($, desktop)).filter(session => session.isArchived).map(session => session.hostId),
+  )
+  const entries = (await read($, all)).filter(
+    entry => entry.hostId === undefined || !archived.has(entry.hostId),
+  )
+  const keys = new Set(
+    sessions.flatMap(session => (session.branches ?? []).map(one => gitKey(one.repo, one.branch))),
+  )
+  const git = Object.fromEntries(
+    Object.entries(await read($, gitStates)).filter(([key]) => keys.has(key)),
+  )
+  const id = await findMachineId($)
+  const machine: RemoteMachine = {
+    machineId: id,
+    name: await findMachineName($),
+    sessions: sessions.filter(session => hostIds.has(session.hostId)),
+    entries,
+    git,
+  }
+  const text = JSON.stringify(machine)
+  if (text === lastPublished) {
+    return
+  }
+  await $.fs.write(`${folder}/machines/${id}.json`, text)
+  lastPublished = text
+}
+
+async function readMachines($: EngineInterface): Promise<RemoteMachine[]> {
+  const folder = await findSyncFolder($)
+  if (folder === undefined) {
+    return []
+  }
+  const id = await findMachineId($)
+  const machines: RemoteMachine[] = []
+  for (const file of await $.fs.list(`${folder}/machines`).catch(() => [])) {
+    // A file iCloud has not downloaded is a .icloud stand-in: it is skipped.
+    if (file.kind !== 'file' || !file.name.endsWith('.json') || file.name === `${id}.json`) {
+      continue
+    }
+    const path = `${folder}/machines/${file.name}`
+    let known = machineFiles.get(path)
+    if (known === undefined || known.mtimeMs !== file.mtimeMs) {
+      const text = await $.fs.read(path).catch(() => null)
+      known = { mtimeMs: file.mtimeMs, machine: text === null ? null : parseMachine(text, id) }
+      machineFiles.set(path, known)
+    }
+    if (known.machine !== null) {
+      machines.push(known.machine)
+    }
+  }
+
+  return machines.sort((a, b) => a.machineId.localeCompare(b.machineId))
+}
+
+// Another computer's file, as far as it reads; anything unexpected is left out.
+function parseMachine(text: string, ownId: string): RemoteMachine | null {
+  let value: unknown
+  try {
+    value = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (typeof value !== 'object' || value === null) {
+    return null
+  }
+  const record = value as Record<string, unknown>
+  if (typeof record.machineId !== 'string' || record.machineId === ownId) {
+    return null
+  }
+  const list = (field: unknown): unknown[] => (Array.isArray(field) ? field : [])
+  const git: Record<string, GitState> = {}
+  if (typeof record.git === 'object' && record.git !== null) {
+    for (const [key, state] of Object.entries(record.git as Record<string, unknown>)) {
+      const one = state as Record<string, unknown> | null
+      if (
+        typeof one?.isDirty === 'boolean' &&
+        typeof one.unpushed === 'number' &&
+        typeof one.isMerged === 'boolean'
+      ) {
+        git[key] = { isDirty: one.isDirty, unpushed: one.unpushed, isMerged: one.isMerged }
+      }
+    }
+  }
+
+  return {
+    machineId: record.machineId,
+    name: typeof record.name === 'string' && record.name.trim() !== '' ? record.name.slice(0, 40) : '?',
+    sessions: list(record.sessions).flatMap(one => {
+      const session = parseSharedSession(one)
+
+      return session === null ? [] : [session]
+    }),
+    entries: list(record.entries).flatMap(one => {
+      const entry = readEntry(one)
+
+      return entry === null ? [] : [entry]
+    }),
+    git,
+  }
+}
+
+function parseSharedSession(value: unknown): DesktopSession | null {
+  if (typeof value !== 'object' || value === null) {
+    return null
+  }
+  const one = value as Record<string, unknown>
+  if (
+    typeof one.hostId !== 'string' ||
+    !/^local_[A-Za-z0-9-]{1,64}$/.test(one.hostId) ||
+    typeof one.cliSessionId !== 'string' ||
+    typeof one.title !== 'string' ||
+    typeof one.folder !== 'string' ||
+    typeof one.lastActivityAt !== 'number'
+  ) {
+    return null
+  }
+  const pr = one.pr as Record<string, unknown> | undefined
+  const branches = Array.isArray(one.branches)
+    ? one.branches.flatMap(item => {
+        const branch = item as Record<string, unknown> | null
+        return typeof branch?.repo === 'string' && typeof branch.branch === 'string'
+          ? [{ repo: branch.repo, branch: branch.branch }]
+          : []
+      })
+    : []
+
+  return {
+    cliSessionId: one.cliSessionId,
+    hostId: one.hostId,
+    title: one.title,
+    folder: one.folder,
+    lastActivityAt: one.lastActivityAt,
+    isArchived: one.isArchived === true,
+    priorCliSessionIds: Array.isArray(one.priorCliSessionIds)
+      ? one.priorCliSessionIds.filter((id): id is string => typeof id === 'string')
+      : [],
+    ...(typeof one.summary === 'string' ? { summary: one.summary } : {}),
+    ...(one.attention === 'blocked' || one.attention === 'review_ready' ? { attention: one.attention } : {}),
+    ...(typeof pr?.number === 'number' && typeof pr.state === 'string'
+      ? { pr: { number: pr.number, state: pr.state } }
+      : {}),
+    ...(branches.length > 0 ? { branches } : {}),
+    ...(typeof one.turnStartedAt === 'number' ? { turnStartedAt: one.turnStartedAt } : {}),
+  }
 }
 
 // Git is asked about the conversation one comes into, after Claude's git commands
@@ -1449,6 +1707,26 @@ type Row = {
   attention?: 'blocked' | 'review_ready'
   pr?: { number: number; state: string }
   turnStartedAt?: number
+  // Set on a conversation of another computer: its name and what its git said.
+  machine?: { name: string; git: Record<string, GitState> }
+}
+
+// Every row: this computer's, then each other computer's, newest first. A conversation
+// this computer lists itself is not taken from another's file.
+function buildAllRows(
+  sessions: readonly DesktopSession[],
+  entries: readonly Entry[],
+  machines: readonly RemoteMachine[],
+): Row[] {
+  const local = buildRows(sessions, entries)
+  const seen = new Set(local.map(row => row.hostId ?? row.key))
+  const others = machines.flatMap(machine =>
+    buildRows(machine.sessions, machine.entries)
+      .filter(row => !seen.has(row.hostId ?? row.key))
+      .map(row => ({ ...row, machine: { name: machine.name, git: machine.git } })),
+  )
+
+  return [...local, ...others].sort((a, b) => b.lastActivityAt - a.lastActivityAt)
 }
 
 // A parsed record per file, kept while the file's time does not change.
@@ -1806,6 +2084,14 @@ function applyOptions(options: Readonly<Record<string, unknown>>): void {
   config.flags = parseFlags(options.flags, config.statuses) ?? [...config.texts.flags]
   config.statusControl = STATUS_CONTROLS.find(one => one === options.statusControl) ?? 'auto'
   config.filters = parseFilterOrder(options.filters)
+  config.syncFolder =
+    typeof options.syncFolder === 'string' && options.syncFolder.trim() !== ''
+      ? options.syncFolder.trim().replace(/[\\/]+$/, '')
+      : undefined
+  config.machineName =
+    typeof options.machineName === 'string' && options.machineName.trim() !== ''
+      ? options.machineName.trim().slice(0, 40)
+      : undefined
 }
 
 // The filter ids the options list, in order; a repeated id counts once.
@@ -2006,7 +2292,8 @@ function matchesFlag(row: Row, flag: FlagDef, filter: FlagFilter): boolean {
 
 // The row's facts line: folder, pull request and flags; the age has its own line under it.
 function describe(row: Row): string {
-  const parts = [row.folder]
+  // Another computer's conversation names that computer first.
+  const parts = row.machine === undefined ? [row.folder] : [`💻 ${row.machine.name}`, row.folder]
   if (row.pr !== undefined) {
     parts.push(`PR #${row.pr.number} ${formatPrState(row.pr.state)}`.trim())
   }

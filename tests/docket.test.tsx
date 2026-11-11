@@ -66,6 +66,8 @@ async function showOnly(
 }
 
 let clock: { advance: (ms: number) => Promise<void> }
+// Files outside the desktop app's records, such as the sync folder, by path.
+const disk = new Map<string, string>()
 
 const DESKTOP = '/Users/me/Library/Application Support/Claude/claude-code-sessions/acc/org'
 
@@ -97,6 +99,9 @@ function mockEngine(
     CLAUDE_CODE_ORGANIZATION_UUID: 'org',
     CLAUDE_CODE_HOST_SESSION_ID: 'local_here',
   }
+  // Changes with the content, so a rewritten file is read again.
+  const stamp = (text: string) => [...text].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) | 0, 7)
+  disk.clear()
   on('fs.list', (_, e) => ({
     value:
       e.path === DESKTOP
@@ -104,19 +109,35 @@ function mockEngine(
             name,
             kind: 'file' as const,
             size: 1,
-            // Changes with the content, so a rewritten record is read again.
-            mtimeMs: [...(files[name] ?? '')].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) | 0, 7),
+            mtimeMs: stamp(files[name] ?? ''),
             isLink: false,
           }))
-        : [],
+        : [...disk.keys()]
+            .filter(path => path.startsWith(`${e.path}/`) && !path.slice(e.path.length + 1).includes('/'))
+            .map(path => ({
+              name: path.slice(e.path.length + 1),
+              kind: 'file' as const,
+              size: 1,
+              mtimeMs: stamp(disk.get(path) ?? ''),
+              isLink: false,
+            })),
   }))
   on('fs.read', (_, e) => {
     const name = e.path.slice(DESKTOP.length + 1)
-    if (!e.path.startsWith(DESKTOP) || files[name] === undefined) {
+    if (e.path.startsWith(DESKTOP) && files[name] !== undefined) {
+      return { value: files[name] }
+    }
+    const text = disk.get(e.path)
+    if (text === undefined) {
       throw new Error('missing')
     }
 
-    return { value: files[name] }
+    return { value: text }
+  })
+  on('fs.write', (_, e) => {
+    disk.set(e.path, e.text)
+
+    return { value: undefined }
   })
   const store = new Map(Object.entries(entries))
   on('store.get', (_, e) => ({ value: store.get(e.key) }))
@@ -1259,4 +1280,77 @@ test('a turn quiet for 10 minutes shows no spinner, and the terminal shows a dot
   const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await terminal.findAll({ type: 'Text', text: /^⋯$/ })).toHaveLength(1)
   await terminal.unmount()
+})
+
+const SYNC = {
+  options: { ...FR.options, syncFolder: '~/Cloud/docket', machineName: 'Portable' },
+}
+const MACHINES = '/Users/me/Cloud/docket/machines'
+
+test('a computer writes its conversations to the sync folder', SYNC, async ($, on) => {
+  mockEngine(on, {}, { 'local_here.json': desktopRecord('here', 'Ici') })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Préparer la démo' })
+  await $.command.run({ command: 'docket', args: 'note relire demain' })
+
+  const written = [...disk.keys()].filter(path => path.startsWith(`${MACHINES}/`))
+  expect(written.length).toBe(1)
+  const machine = JSON.parse(disk.get(written[0] ?? '') ?? '{}')
+  expect(machine.name).toBe('Portable')
+  expect(machine.sessions.map((session: { title: string }) => session.title)).toEqual(['Ici'])
+  // The note set a moment ago is already shared.
+  expect(machine.entries[0]).toMatchObject({ hostId: 'local_here', status: 'en-cours', note: 'relire demain' })
+})
+
+test('the board shows the conversations another computer shared', SYNC, async ($, on) => {
+  mockEngine(on, { filters: { status: 'tous', flags: {} } })
+  disk.set(
+    `${MACHINES}/far-machine.json`,
+    JSON.stringify({
+      machineId: 'far-machine',
+      name: 'Bureau',
+      sessions: [
+        {
+          cliSessionId: 'far',
+          hostId: 'local_far',
+          title: 'Loin',
+          folder: 'api',
+          lastActivityAt: 3_590_000,
+          isArchived: false,
+          priorCliSessionIds: [],
+          turnStartedAt: 3_580_000,
+          branches: [{ repo: '/repo', branch: 'feature' }],
+        },
+      ],
+      entries: [
+        { sessionId: 'far', hostId: 'local_far', label: 'Loin', folder: 'api', status: 'en-attente', flags: {}, updatedAt: 1 },
+      ],
+      git: { '/repo\u0000feature': { isDirty: true, unpushed: 0, isMerged: true } },
+    }),
+  )
+  disk.set(`${MACHINES}/broken.json`, 'not json')
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // In its status group, named after its computer, with that computer's git and a spinner.
+  expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^💻 Bureau · api$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
+  expect(await ui.find({ type: 'Svg', alt: 'Claude travaille' } as never)).toBeTruthy()
+  // This computer cannot open it nor remove it: the title is plain text.
+  expect(await ui.find({ type: 'Text', text: /^Loin$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Markdown', key: 'open-far' })).toBeFalsy()
+  expect(await ui.find({ type: 'Button', key: 'remove-far' })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('without a sync folder nothing is written nor read', FR, async ($, on) => {
+  mockEngine(on, { filters: { status: 'tous', flags: {} } }, { 'local_here.json': desktopRecord('here', 'Ici') })
+  disk.set('/Users/me/Cloud/docket/machines/far.json', JSON.stringify({ machineId: 'far', name: 'Bureau', sessions: [], entries: [], git: {} }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Préparer la démo' })
+  expect([...disk.keys()]).toEqual(['/Users/me/Cloud/docket/machines/far.json'])
 })
