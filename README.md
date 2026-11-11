@@ -14,10 +14,11 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - Each conversation gets a small glyph, colored by project, to spot it at a glance.
 - Titles that name a ticket get a link to it, with rules you set.
 - The band counts the other conversations that wait on you (⚠️ 2); 🏷️ opens the board.
-- An orange frame, between the filters and the groups, lists what waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
+- A first group, `⚠️ Your turn`, between the filters and the other groups, lists what waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
 - A short note per conversation says why it waits or what comes next.
-- 💤, on each row, snoozes a conversation for 5, 10, 15 or 30 minutes, an hour or a day: whatever its status, it leaves the board, the orange frame and the band's count, and comes back once the time is up.
+- 💤, on each row, snoozes a conversation for 5, 10, 15 or 30 minutes, an hour or a day: whatever its status, it leaves the board, the Your turn group and the band's count, and comes back once the time is up.
   The search still finds it, with the time left (`💤 25 min`); its 💤 then offers to wake it up now.
+  `☐ 💤 Snoozed (2)`, left of ↻, shows them again on the board until pressed again.
   Every conversation's board shares the snoozes, and so do your other computers with a sync folder: the last snooze or wake-up made on a conversation, on any computer, wins.
 - Each row tells what git still holds of the branches the conversation committed on: `✎ uncommitted`, `↑2 unpushed`, `⑂ not merged`.
   Git is asked about a conversation's branches when you come into it, and again right after Claude runs a git command there that changes a branch (commit, push, merge…).
@@ -198,7 +199,7 @@ Set `syncFolder` to the same synced folder on each computer, for example in iClo
 ```
 
 - Each computer writes one file of its own there, `machines/<id>.json`: its conversations, their statuses, flags and notes, and its git signs. It reads the others' files and never writes them.
-- The board shows the other computers' conversations in their groups, named after their computer, with their spinner and git signs.
+- The board shows the other computers' conversations in their groups, with their spinner and git signs. Where a group holds conversations of several computers, this computer's come first under `🏠 Local`, then each other computer's under its name (`💻 Office`).
 - A click opens one in the app through Remote Control, when Remote Control is on for it; otherwise its title is plain text.
 - Opened this way, it shows neither the band nor the board, which run on its own computer; `/docket` works there and sets its status.
 - A conversation's status is set where it runs, in its band or with `/docket`.

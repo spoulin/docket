@@ -84,6 +84,8 @@ declare module 'claude-code' {
       flagFilters: Record<string, FlagFilter>
       // When each snoozed conversation wakes up, by its key.
       snoozes: Record<string, number>
+      // Whether the board shows the snoozed conversations too.
+      showSnoozed: boolean
       // Bumped on each automatic refresh while the board is shown, so its ages redraw.
       tick: number
     }

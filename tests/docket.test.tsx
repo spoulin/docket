@@ -802,17 +802,14 @@ test('the band counts the conversations that wait on the person', FR, async ($, 
   // The your-turn section sits under the filters, whatever they are, above the statuses.
   await $.command.run({ command: 'docket', args: 'termine' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /^⚠️ À toi/ })).toBeFalsy()
-  // The section and the filters each sit in a frame: orange for what waits, the theme's for the rest.
-  expect((await ui.find({ type: 'Box', key: 'your-turn' } as never))?.props).toMatchObject({
-    borderStyle: 'single',
-    borderColor: 'warning',
-  })
+  // What waits on the person is a group of its own, with a heading like the others and no frame.
+  expect(await ui.find({ type: 'Text', text: '⚠️ À toi (2)' })).toBeTruthy()
+  expect((await ui.find({ type: 'Box', key: 'your-turn' } as never))?.props.borderStyle).toBeUndefined()
   expect((await ui.find({ type: 'Box', key: 'filters' } as never))?.props).toMatchObject({
     borderStyle: 'single',
     borderColor: 'promptBorder',
   })
-  // In order: the filters, the orange frame, then the first group.
+  // In order: the filters, what waits on the person, then the first group.
   const board = JSON.stringify(await ui.find({ type: 'Box' }))
   const at = (key: string) => board.indexOf(`"key":"${key}`)
   expect(at('filters')).toBeGreaterThan(-1)
@@ -1466,8 +1463,9 @@ test('the board shows the conversations another computer shared', SYNC, async ($
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // In its status group, named after its computer, with that computer's git and a spinner.
   expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
-  // Its computer on a line of its own under the title, then the facts line.
+  // Under its computer's name, apart from this computer's conversations, under "Local".
   expect(await ui.find({ type: 'Text', text: '💻 Bureau' })).toBeTruthy()
+  expect(await ui.find({ type: 'Box', key: 'place-en-attente-Bureau' } as never)).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^api$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
   expect(await ui.find({ type: 'Svg', alt: 'Claude travaille' } as never)).toBeTruthy()
@@ -1530,6 +1528,18 @@ test('a snooze hides a conversation for a while, and the search still finds it',
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await band.find({ type: 'Button', key: 'your-turn' })).toBeFalsy()
   await band.unmount()
+
+  // A button left of ↻ shows the snoozed conversations again, until pressed again.
+  expect((await ui.find({ type: 'Button', key: 'show-snoozed' }))?.props.label).toBe('☐ 💤 En snooze (1)')
+  const board = JSON.stringify(await ui.find({ type: 'Box', key: 'refresh-row' } as never))
+  expect(board.indexOf('"key":"show-snoozed"')).toBeLessThan(board.indexOf('"key":"refresh"'))
+  await ui.press({ key: 'show-snoozed' })
+  expect((await ui.find({ type: 'Button', key: 'show-snoozed' }))?.props.label).toBe('☑ 💤 En snooze (1)')
+  expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
+  expect((await ui.find({ type: 'Select', key: 'snooze-a' }))?.props.options[0]?.label).toBe('💤 10 min')
+  expect(store.get('filters')).toMatchObject({ showSnoozed: true })
+  await ui.press({ key: 'show-snoozed' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeFalsy()
 
   // The search finds it, with what is left of its snooze.
   await ui.input({ key: 'search', text: 'premiere', kind: 'change' })
@@ -1594,5 +1604,33 @@ test('the computers share their snoozes, and the last word on one wins', SYNC, a
   expect(store.get('snoozes')).toMatchObject({ local_far: { until: 0 } })
   const own = [...disk.keys()].find(path => path.startsWith(`${MACHINES}/`) && !path.endsWith('far-machine.json'))
   expect(JSON.parse(disk.get(own ?? '') ?? '{}').snoozes).toMatchObject({ local_far: { until: 0 } })
+  await ui.unmount()
+})
+
+test('a group with conversations of several computers shows this one first, under Local', SYNC, async ($, on) => {
+  mockEngine(on, { filters: { status: 'tous', flags: {} }, 'session:other': OTHER })
+  disk.set(
+    `${MACHINES}/far-machine.json`,
+    JSON.stringify({
+      machineId: 'far-machine',
+      name: 'Bureau',
+      sessions: [
+        { cliSessionId: 'far', hostId: 'local_far', title: 'Loin', folder: 'api', lastActivityAt: 3_590_000, isArchived: false, priorCliSessionIds: [] },
+      ],
+      entries: [
+        { sessionId: 'far', hostId: 'local_far', label: 'Loin', folder: 'api', status: OTHER.status, flags: {}, updatedAt: 1 },
+      ],
+      git: {},
+    }),
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const group = JSON.stringify(await ui.find({ type: 'Box', key: `group-${OTHER.status}` } as never))
+  const at = (text: string) => group.indexOf(text)
+  expect(at('🏠 Local')).toBeGreaterThan(-1)
+  expect(at('💻 Bureau')).toBeGreaterThan(at('🏠 Local'))
+  expect(at('Loin')).toBeGreaterThan(at('💻 Bureau'))
   await ui.unmount()
 })

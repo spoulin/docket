@@ -49,6 +49,7 @@ const TEXTS = {
     noteSaved: 'Note saved.',
     noteCleared: 'Note cleared.',
     yourTurnBand: (count: number) => `⚠️ ${count}`,
+    yourTurn: (count: number) => `⚠️ Your turn (${count})`,
     saveFailed: 'The conversation status could not be saved.',
     paneTitle: '🏷️ Docket',
     statuses: [
@@ -99,6 +100,9 @@ const TEXTS = {
     snooze: '💤',
     snoozedFor: (rest: string) => `💤 ${rest}`,
     wake: 'Wake up',
+    showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 💤 Snoozed (${count})`,
+    local: '🏠 Local',
+    machine: (name: string) => `💻 ${name}`,
     snoozes: {
       '5m': '5 min',
       '10m': '10 min',
@@ -126,6 +130,7 @@ const TEXTS = {
     noteSaved: 'Note enregistrée.',
     noteCleared: 'Note effacée.',
     yourTurnBand: (count: number) => `⚠️ ${count}`,
+    yourTurn: (count: number) => `⚠️ À toi (${count})`,
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     paneTitle: '🏷️ Docket',
     statuses: [
@@ -176,6 +181,9 @@ const TEXTS = {
     snooze: '💤',
     snoozedFor: (rest: string) => `💤 ${rest}`,
     wake: 'Réveiller',
+    showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 💤 En snooze (${count})`,
+    local: '🏠 Local',
+    machine: (name: string) => `💻 ${name}`,
     snoozes: {
       '5m': '5 min',
       '10m': '10 min',
@@ -317,6 +325,8 @@ const SNOOZES: Record<SnoozeId, number> = {
   '1h': 3_600_000,
   '1d': 24 * 3_600_000,
 }
+// Whether the board shows the snoozed conversations too, kept with the filters.
+const showSnoozed = atom({ plugin: 'docket', key: 'showSnoozed' } as const, false)
 const SNOOZE_NONE = ''
 const SNOOZE_WAKE = 'wake'
 
@@ -641,10 +651,14 @@ export const register: Register = (on, options) => {
     const since = isSearching ? Number.NEGATIVE_INFINITY : findPeriodStart(period, now)
     const asleep = await read($, snoozes)
     const wakesAt = (row: Row) => asleep[snoozeKey(row)] ?? 0
-    // A snoozed conversation is left out, the frame of what waits on you included,
-    // until it wakes up; a search still finds it.
+    const isShowingSnoozed = await read($, showSnoozed)
+    const snoozedCount = rows.filter(row => isSnoozed(asleep, snoozeKey(row), now)).length
+    // A snoozed conversation is left out, the group of what waits on you included,
+    // until it wakes up, unless the board shows them; a search still finds it.
     const found = rows.filter(
-      row => matchesSearch(row, query) && (isSearching || !isSnoozed(asleep, snoozeKey(row), now)),
+      row =>
+        matchesSearch(row, query) &&
+        (isSearching || isShowingSnoozed || !isSnoozed(asleep, snoozeKey(row), now)),
     )
     const shown = found.filter(
       row =>
@@ -758,14 +772,6 @@ export const register: Register = (on, options) => {
                 )}
               </Box>
             </Box>
-            {row.machine !== undefined && (
-              // Another computer's conversation: that computer, on a line of its own under the title.
-              <Box key={`machine-${row.key}`} flexDirection="row" justifyContent="flex-start">
-                <Text dimColor size="footnote" wrap="truncate-end">
-                  {`💻 ${row.machine.name}`}
-                </Text>
-              </Box>
-            )}
             <Box flexDirection="row" alignItems="center" gap={1}>
               {findTicket(row.title) !== undefined && (
                 <Markdown
@@ -833,6 +839,27 @@ export const register: Register = (on, options) => {
         ...(index === 0 ? [] : [separator(`separator-${row.key}`)]),
         renderRow(row),
       ])
+    // A list holding conversations of other computers is cut in two: this computer's
+    // first, under "Local", then each other computer's under its name.
+    const listByPlace = (prefix: string, list: readonly Row[]) => {
+      const names = [...new Set(list.flatMap(row => (row.machine === undefined ? [] : [row.machine.name])))]
+      const places = [
+        ...(list.some(row => row.machine === undefined) ? [undefined] : []),
+        ...names.sort((a, b) => a.localeCompare(b)),
+      ]
+      if (places.length === 1 && places[0] === undefined) {
+        return listRows(list)
+      }
+
+      return places.map(place => (
+        <Box key={`place-${prefix}-${place ?? 'local'}`} flexDirection="column" gap={1}>
+          <Text weight="semibold" dimColor>
+            {place === undefined ? t.local : t.machine(place)}
+          </Text>
+          {listRows(list.filter(row => row.machine?.name === place))}
+        </Box>
+      ))
+    }
     // Each picker with its label above it, laid out in two columns, row by row.
     // The right column's pickers sit against the frame's right edge, label and all.
     const labelled = (key: string, label: string, node: JSX.Element) => ({
@@ -994,7 +1021,14 @@ export const register: Register = (on, options) => {
           <Box key="rule-refresh" marginY={1}>
             {separator('rule-refresh-line')}
           </Box>
-          <Box key="refresh-row" flexDirection="row" justifyContent="flex-end">
+          <Box key="refresh-row" flexDirection="row" justifyContent="flex-end" gap={1}>
+            <Button
+              key="show-snoozed"
+              plain
+              label={t.showSnoozed(isShowingSnoozed, snoozedCount)}
+              dimColor={!isShowingSnoozed}
+              onPress={() => saveShowSnoozed($, !isShowingSnoozed)}
+            />
             <Button
               key="refresh"
               label={t.refresh}
@@ -1012,16 +1046,14 @@ export const register: Register = (on, options) => {
           )}
         </Box>
         {yourTurn.length > 0 && (
-          <Box
-            key="your-turn"
-            flexDirection="column"
-            gap={1}
-            marginTop={1}
-            borderStyle="single"
-            borderColor="warning"
-            paddingX={1}
-          >
-            {listRows(yourTurn)}
+          // What waits on the person: a group like the others, first, with its own heading.
+          <Box key="your-turn" flexDirection="column" gap={1} marginTop={1}>
+            <Box key="heading-your-turn" marginBottom={1}>
+              <Text weight="bold" size="title">
+                {t.yourTurn(yourTurn.length)}
+              </Text>
+            </Box>
+            {listByPlace('your-turn', yourTurn)}
           </Box>
         )}
         {groups.every(group => !isShown(group.id) || group.rows.length === 0) && (
@@ -1040,7 +1072,7 @@ export const register: Register = (on, options) => {
                   {`${group.label} (${group.rows.length})`}
                 </Text>
               </Box>
-              {listRows(group.rows)}
+              {listByPlace(group.id, group.rows)}
             </Box>
           )
         })}
@@ -1127,26 +1159,39 @@ type Filters = {
   status: StatusFilter
   period: Period
   flags: Record<string, FlagFilter>
+  showSnoozed: boolean
 }
 
 const FILTERS_KEY = 'filters'
 
 async function saveStatusFilter($: EngineInterface, status: StatusFilter): Promise<void> {
   const filters = { ...(await readStoredFilters($)), status }
-  await $.store.set(FILTERS_KEY, filters)
+  await storeFilters($, filters)
   await applyFilters($, filters)
 }
 
 async function savePeriod($: EngineInterface, period: Period): Promise<void> {
   const filters = { ...(await readStoredFilters($)), period }
-  await $.store.set(FILTERS_KEY, filters)
+  await storeFilters($, filters)
   await applyFilters($, filters)
 }
 
 async function saveFlagFilter($: EngineInterface, id: string, value: FlagFilter): Promise<void> {
   const stored = await readStoredFilters($)
   const filters = { ...stored, flags: { ...stored.flags, [id]: value } }
-  await $.store.set(FILTERS_KEY, filters)
+  await storeFilters($, filters)
+  await applyFilters($, filters)
+}
+
+// The filters as kept: the snoozed conversations' toggle only once it is on.
+async function storeFilters($: EngineInterface, filters: Filters): Promise<void> {
+  const { showSnoozed: isShowingSnoozed, ...rest } = filters
+  await $.store.set(FILTERS_KEY, isShowingSnoozed ? filters : rest)
+}
+
+async function saveShowSnoozed($: EngineInterface, isOn: boolean): Promise<void> {
+  const filters = { ...(await readStoredFilters($)), showSnoozed: isOn }
+  await storeFilters($, filters)
   await applyFilters($, filters)
 }
 
@@ -1282,6 +1327,9 @@ async function applyFilters($: EngineInterface, filters: Filters): Promise<void>
   if (JSON.stringify(await read($, flagFilters)) !== JSON.stringify(filters.flags)) {
     await update($, flagFilters, () => filters.flags)
   }
+  if ((await read($, showSnoozed)) !== filters.showSnoozed) {
+    await update($, showSnoozed, () => filters.showSnoozed)
+  }
 }
 
 async function readStoredFilters($: EngineInterface): Promise<Filters> {
@@ -1313,6 +1361,7 @@ async function readStoredFilters($: EngineInterface): Promise<Filters> {
     status,
     period: parsePeriod(typeof value.period === 'string' ? value.period : ''),
     flags: flagsKept,
+    showSnoozed: value.showSnoozed === true,
   }
 }
 
