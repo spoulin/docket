@@ -969,7 +969,8 @@ export const register: Register = (on, options) => {
 
           return (
             <Box key={`group-${group.id}`} flexDirection="column" gap={1} marginTop={1}>
-              <Box key={`heading-${group.id}`}>
+              {/* A line of space under the group's name, before its first row. */}
+              <Box key={`heading-${group.id}`} marginBottom={1}>
                 <Text weight="bold" size="title">
                   {`${group.label} (${group.rows.length})`}
                 </Text>
