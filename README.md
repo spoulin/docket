@@ -121,7 +121,7 @@ A new conversation reads them.
 | `statusControl` | How the band shows the status: `buttons`, `dropdown`, `cycle` (one button that moves to the next status), or `auto`. | `auto`: buttons up to 5 statuses, a dropdown past that |
 | `filters` | A JSON list of the board's filters, in order: `status`, `period` and flag ids. A filter left out is hidden. | status, period, then every flag |
 | `ticketLinks` | A JSON list of rules that turn a ticket named in a title into a link. | none |
-| `projectColors` | A JSON map from a project to a hue from 0 to 359. | a hue from the project's name |
+| `projectColors` | A JSON map from a project to a hue from 0 to 359, or `"gray"`. | a hue from the project's name |
 | `syncFolder` | A folder your computers share, to see each other's conversations. | none: nothing is shared |
 | `machineName` | How your other computers name this one. | the computer's own name |
 
@@ -197,6 +197,7 @@ The first rule that matches a title wins.
 
 A project is the conversation's folder name, or the id of a flag set on it.
 A flag with a color takes precedence: `{"my-repo": 212, "perso": 285}` colors personal conversations purple wherever they are.
+`"gray"` in place of a hue colors a project's glyphs in shades of gray: `{"perso": "gray"}`.
 
 ### Sharing between computers
 

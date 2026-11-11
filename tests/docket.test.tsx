@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.9',
+    title: '🏷️ Docket 0.12.10',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1919,4 +1919,27 @@ test('a turn that closes on a question in the next-step box waits on the person'
   await clock.advance(30_000)
   expect(await ui.find({ type: 'Box', key: 'your-turn' })).toBeFalsy()
   await ui.unmount()
+})
+
+test('a project colored gray gets gray glyphs', { options: { ...FR.options, projectColors: JSON.stringify({ 'my-app': 'gris' }) } }, async ($, on) => {
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, { 'local_a.json': desktopRecord('a', 'Première') })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const colors = [] as string[]
+  for (const shape of ['●', '■', '▲', '◆', '★', '✚', '◐', '⬢']) {
+    const found = await ui.find({ type: 'Text', text: shape })
+    if (typeof found?.props.color === 'string') {
+      colors.push(found.props.color)
+    }
+  }
+  await ui.unmount()
+
+  expect(colors.length).toBeGreaterThan(0)
+  for (const color of colors) {
+    const [r, g, b] = [1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16))
+    expect(r).toBe(g)
+    expect(g).toBe(b)
+  }
 })

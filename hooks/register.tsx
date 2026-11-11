@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.9'
+const VERSION = '0.12.10'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -2728,7 +2728,7 @@ function glyphColor(id: string, project: string): string {
   // One hue per project, from the options; a project not listed gets one from its name.
   const base = config.hues[project] ?? hash(`${project}:hue`) % 360
   const hue = (base + ((value % 37) - 18) + 360) % 360
-  const saturation = (55 + ((value >>> 9) % 20)) / 100
+  const saturation = base === GRAY ? 0 : (55 + ((value >>> 9) % 20)) / 100
   const lightness = (50 + ((value >>> 17) % 12)) / 100
   const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation
   const channel = (offset: number) => {
@@ -2934,6 +2934,10 @@ function parseTicketRules(value: unknown): TicketRule[] {
   return rules
 }
 
+// A project colored gray takes no hue: its glyphs are shades of gray.
+const GRAY = -1
+const GRAY_WORDS: readonly string[] = ['gray', 'grey', 'gris']
+
 function parseHues(value: unknown): Record<string, number> {
   const map = parseJson(value)
   if (typeof map !== 'object' || map === null || Array.isArray(map)) {
@@ -2943,6 +2947,8 @@ function parseHues(value: unknown): Record<string, number> {
   for (const [project, hue] of Object.entries(map)) {
     if (typeof hue === 'number' && Number.isFinite(hue)) {
       hues[project.toLowerCase()] = ((Math.round(hue) % 360) + 360) % 360
+    } else if (typeof hue === 'string' && GRAY_WORDS.includes(hue.trim().toLowerCase())) {
+      hues[project.toLowerCase()] = GRAY
     }
   }
 
