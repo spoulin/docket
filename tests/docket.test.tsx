@@ -188,6 +188,26 @@ test('the first prompt files the conversation as in progress', FR, async ($, on)
   }
 })
 
+test('a conversation started with a command is in progress too', FR, async ($, on) => {
+  const store = mockEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({
+    text: '/explain-ticket ABC-1234',
+    command: { name: 'explain-ticket', args: 'ABC-1234' },
+  } as never)
+  expect(store.get('host:local_here')).toMatchObject({ status: 'en-cours', label: '/explain-ticket ABC-1234' })
+})
+
+test('/docket as the first message sets the status it names', FR, async ($, on) => {
+  const store = mockEngine(on)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: 'termine' })
+  await $.prompt.submit({ text: '/docket termine', command: { name: 'docket', args: 'termine' } } as never)
+  expect(store.get('host:local_here')).toMatchObject({ status: 'termine' })
+})
+
 test('the band changes the status and the remote flag', CYCLE, async ($, on) => {
   const store = mockEngine(on)
 

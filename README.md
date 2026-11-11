@@ -75,7 +75,7 @@ To update the mod later: `claude plugin marketplace update docket`, then `claude
 - `/docket note <text>` writes the conversation's note, shown in the band and on the board. `/docket note` alone clears it.
 - The band above the prompt does the same, with buttons, a dropdown or one cycling button (see `statusControl`).
 
-A conversation gets the first status when you send its first message.
+A conversation gets the first status when you send its first message, a slash command such as a skill included.
 
 The board reads the conversations again:
 

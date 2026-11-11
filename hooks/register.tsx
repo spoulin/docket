@@ -363,8 +363,10 @@ export const register: Register = (on, options) => {
 
   on('prompt.submit', async ($, e, next) => {
     const submitted = await next(e)
+    // A conversation started with a command (a skill such as /explain-ticket) counts too;
+    // /docket sets the status itself.
     const isFirstPrompt =
-      e.isMeta !== true && e.command === undefined && (await read($, current)) === null
+      e.isMeta !== true && e.command?.name !== 'docket' && (await read($, current)) === null
     if (isFirstPrompt && e.text.trim() !== '') {
       await createEntry($, e.text)
         .then(entry => saveEntry($, entry))
