@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.11.11',
+    title: '🏷️ Docket 0.11.12',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1654,5 +1654,41 @@ test('a group with conversations of several computers shows this one first, unde
   expect(at('separator-other')).toBeLessThan(at('💻 Bureau'))
   // The last card of the group gets its rule too, before the next heading.
   expect(at('separator-far')).toBeGreaterThan(at('Loin'))
+  await ui.unmount()
+})
+
+test('a conversation in two files of one computer is drawn once, with its latest status', SYNC, async ($, on) => {
+  mockEngine(on, { filters: { status: 'tous', flags: {} } })
+  const session = (lastActivityAt: number) => ({
+    cliSessionId: 'far',
+    hostId: 'local_far',
+    title: 'Loin',
+    folder: 'api',
+    lastActivityAt,
+    isArchived: false,
+    priorCliSessionIds: [],
+    remoteId: 'cse_0123456789abcdef',
+  })
+  // The older file has the status; the newer one, written by another copy of the mod, does not.
+  disk.set(
+    `${MACHINES}/old-machine.json`,
+    JSON.stringify({
+      machineId: 'old-machine',
+      name: 'Bureau',
+      sessions: [session(3_000_000)],
+      entries: [{ sessionId: 'far', hostId: 'local_far', label: 'Loin', folder: 'api', status: 'en-attente', flags: {}, updatedAt: 5 }],
+      git: {},
+    }),
+  )
+  disk.set(
+    `${MACHINES}/new-machine.json`,
+    JSON.stringify({ machineId: 'new-machine', name: 'Bureau', sessions: [session(3_500_000)], entries: [], git: {} }),
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-far' })).toBeTruthy()
+  expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
   await ui.unmount()
 })

@@ -15,7 +15,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.11.11'
+const VERSION = '0.11.12'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -1968,14 +1968,40 @@ function buildAllRows(
   machines: readonly RemoteMachine[],
 ): Row[] {
   const local = buildRows(sessions, entries)
-  const seen = new Set(local.map(row => row.hostId ?? row.key))
-  const others = machines.flatMap(machine =>
-    buildRows(machine.sessions, machine.entries)
-      .filter(row => !seen.has(row.hostId ?? row.key))
-      .map(row => ({ ...row, machine: { name: machine.name, git: machine.git } })),
-  )
+  const seen = new Set(local.flatMap(row => [row.key, ...(row.hostId === undefined ? [] : [row.hostId])]))
+  // One conversation may sit in several files of one computer: an older copy of the mod
+  // wrote under another id. It is drawn once: its latest activity, with its latest status.
+  const others = new Map<string, Row>()
+  for (const machine of machines) {
+    for (const row of buildRows(machine.sessions, machine.entries)) {
+      if (seen.has(row.key) || (row.hostId !== undefined && seen.has(row.hostId))) {
+        continue
+      }
+      const id = row.hostId ?? row.key
+      const known = others.get(id)
+      const shared = { ...row, machine: { name: machine.name, git: machine.git } }
+      if (known === undefined) {
+        others.set(id, shared)
+        continue
+      }
+      const newer = shared.lastActivityAt > known.lastActivityAt ? shared : known
+      const entry =
+        (shared.entry?.updatedAt ?? -1) > (known.entry?.updatedAt ?? -1) ? shared.entry : known.entry
+      others.set(id, { ...newer, entry })
+    }
+  }
+  // Two rows of one key would break the board: a key already drawn is left out.
+  const keys = new Set<string>()
+  const remoteRows = [...others.values()].filter(row => {
+    if (keys.has(row.key)) {
+      return false
+    }
+    keys.add(row.key)
 
-  return [...local, ...others].sort((a, b) => b.lastActivityAt - a.lastActivityAt)
+    return true
+  })
+
+  return [...local, ...remoteRows].sort((a, b) => b.lastActivityAt - a.lastActivityAt)
 }
 
 // A parsed record per file, kept while the file's time does not change.
