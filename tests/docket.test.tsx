@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.0',
+    title: '🏷️ Docket 0.12.1',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1709,5 +1709,8 @@ test('a wide board lays its groups side by side, one column each', FR, async ($,
   expect(board).toContain('group-en-cours')
   expect(board).toContain('group-en-attente')
   expect(board.indexOf('group-en-cours')).toBeLessThan(board.indexOf('group-en-attente'))
+  // Its filters sit on one line rather than in two columns.
+  expect(await wide.find({ type: 'Box', key: 'filter-line' })).toBeTruthy()
+  expect(await wide.find({ type: 'Box', key: 'filter-column-1' })).toBeFalsy()
   await wide.unmount()
 })

@@ -15,7 +15,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.0'
+const VERSION = '0.12.1'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -1057,6 +1057,11 @@ export const register: Register = (on, options) => {
           {Select === undefined ? (
           <Box flexDirection="column" gap={1}>
             {filterIds().map(id => fallbackRows[id])}
+          </Box>
+        ) : columns >= BOARD_COLUMNS_MIN ? (
+          // A wide board: every picker on one line, from the left, close together.
+          <Box key="filter-line" flexDirection="row" flexWrap="wrap" alignItems="flex-start" gap={4}>
+            {pickers.map(picker => picker.node(false))}
           </Box>
         ) : (
           <Box flexDirection="column" gap={1}>
