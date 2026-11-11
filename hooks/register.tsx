@@ -805,25 +805,33 @@ export const register: Register = (on, options) => {
           alignItems="center"
           gap={1}
         >
-          <Box key={`age-${row.key}`} flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
-            {isRunning(row, now) &&
-              (Svg === undefined ? (
-                <Text key={`running-${row.key}`} dimColor size="caption">
-                  ⋯
-                </Text>
-              ) : (
-                <Svg
-                  key={`running-${row.key}`}
-                  source={SPINNER_SVG}
-                  alt={t.running}
-                  width={12}
-                  height={12}
-                  isInteractive
-                />
-              ))}
-            <Text dimColor size="caption">
-              {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
-            </Text>
+          {/* The pull request above the age, as tall together as the 💤 picker. */}
+          <Box key={`facts-${row.key}`} flexDirection="column" alignItems="flex-start" flexShrink={1}>
+            {describePr(row) !== undefined && (
+              <Text key={`pr-${row.key}`} dimColor size="footnote" wrap="truncate-end">
+                {describePr(row)}
+              </Text>
+            )}
+            <Box key={`age-${row.key}`} flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+              {isRunning(row, now) &&
+                (Svg === undefined ? (
+                  <Text key={`running-${row.key}`} dimColor size="caption">
+                    ⋯
+                  </Text>
+                ) : (
+                  <Svg
+                    key={`running-${row.key}`}
+                    source={SPINNER_SVG}
+                    alt={t.running}
+                    width={12}
+                    height={12}
+                    isInteractive
+                  />
+                ))}
+              <Text dimColor size="caption">
+                {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
+              </Text>
+            </Box>
           </Box>
           {Select !== undefined && (
             <Select
@@ -860,14 +868,16 @@ export const register: Register = (on, options) => {
         return listRows(list)
       }
 
-      return places.map(place => (
+      // The same thin rule as between two cards closes each section before the next one's name.
+      return places.flatMap((place, index) => [
+        ...(index === 0 ? [] : [separator(`separator-place-${prefix}-${place ?? 'local'}`)]),
         <Box key={`place-${prefix}-${place ?? 'local'}`} flexDirection="column" gap={1}>
           <Text weight="semibold" dimColor>
             {place === undefined ? t.local : t.machine(place)}
           </Text>
           {listRows(list.filter(row => row.machine?.name === place))}
         </Box>
-      ))
+      ])
     }
     // Each picker with its label above it, laid out in two columns, row by row.
     // The right column's pickers sit against the frame's right edge, label and all.
@@ -2693,9 +2703,6 @@ function matchesFlag(row: Row, flag: FlagDef, filter: FlagFilter): boolean {
 // The row's facts line: folder, pull request and flags; the age has its own line under it.
 function describe(row: Row): string {
   const parts = [row.folder]
-  if (row.pr !== undefined) {
-    parts.push(`PR #${row.pr.number} ${formatPrState(row.pr.state)}`.trim())
-  }
   for (const flag of flags()) {
     if (row.entry?.flags[flag.id] === true) {
       parts.push(flag.on.toLowerCase())
@@ -2713,6 +2720,11 @@ function formatSummary(row: Row): string {
   }
 
   return row.summary ?? ''
+}
+
+// The pull request, shown above the age on the card's last line.
+function describePr(row: Row): string | undefined {
+  return row.pr === undefined ? undefined : `PR #${row.pr.number} ${formatPrState(row.pr.state)}`.trim()
 }
 
 function formatPrState(state: string): string {

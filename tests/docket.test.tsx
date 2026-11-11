@@ -470,7 +470,9 @@ test('a row shows the last turn summary, what is asked and the pull request', FR
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await showOnly(ui, ['aucun'])
-  expect(await ui.find({ type: 'Text', text: /^my-app · PR #7368 ouverte$/ })).toBeTruthy()
+  // The folder on the facts line; the pull request above the age, on the card's last line.
+  expect(await ui.find({ type: 'Text', text: /^my-app$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'PR #7368 ouverte' })).toBeTruthy()
   expect(
     await ui.find({ type: 'Text', text: /^⚠️ The reviewer's answer on the open question$/ }),
   ).toBeTruthy()
@@ -1191,7 +1193,7 @@ test('a row shows what git still holds of the branch it committed on', FR, async
   expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: '⑂ pas mergé' })).toBeTruthy()
   // Merged through its pull request, nothing left to push: no sign.
-  expect(await ui.find({ type: 'Text', text: 'my-app · PR #9 mergée' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: 'PR #9 mergée' })).toBeTruthy()
   expect(store.get('git')).toMatchObject({ states: expect.any(Object) })
 
   // Drawn again, the board reads git's answers from the store: git is not asked.
@@ -1639,9 +1641,13 @@ test('a group with conversations of several computers shows this one first, unde
   await $.command.run({ command: 'docket', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const group = JSON.stringify(await ui.find({ type: 'Box', key: `group-${OTHER.status}` } as never))
-  const at = (text: string) => group.indexOf(text)
+  // Positions in the tree, past the group's flattened text.
+  const at = (text: string) => group.indexOf(text, group.indexOf('"children"'))
   expect(at('🏠 Local')).toBeGreaterThan(-1)
   expect(at('💻 Bureau')).toBeGreaterThan(at('🏠 Local'))
   expect(at('Loin')).toBeGreaterThan(at('💻 Bureau'))
+  // A thin rule closes the Local section before the other computer's name.
+  expect(at('separator-place-')).toBeGreaterThan(at('🏠 Local'))
+  expect(at('separator-place-')).toBeLessThan(at('💻 Bureau'))
   await ui.unmount()
 })
