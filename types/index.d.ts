@@ -65,6 +65,14 @@ export type RemoteMachine = {
   snoozes: Record<string, Snooze>
 }
 
+// The board's filters, as a board keeps them.
+export type BoardFilters = {
+  status: StatusFilter
+  period: Period
+  flags: Record<string, FlagFilter>
+  showSnoozed: boolean
+}
+
 // A snooze: when the conversation wakes up (0 for a wake-up), and when it was set.
 export type Snooze = { until: number; setAt: number }
 
@@ -86,6 +94,8 @@ declare module 'claude-code' {
       snoozes: Record<string, number>
       // Whether the board shows the snoozed conversations too.
       showSnoozed: boolean
+      // A wide board's own filters.
+      wideFilters: BoardFilters
       // Bumped on each automatic refresh while the board is shown, so its ages redraw.
       tick: number
     }

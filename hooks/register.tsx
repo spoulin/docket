@@ -3,6 +3,7 @@ import type { EngineInterface, Register, Timer } from 'claude-code'
 
 import type {
   DesktopSession,
+  BoardFilters,
   Entry,
   FlagFilter,
   GitState,
@@ -15,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.2'
+const VERSION = '0.12.3'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -317,6 +318,13 @@ const statusFilter = atom(
 const tick = atom({ plugin: 'docket', key: 'tick' } as const, 0)
 const flagFilters = atom({ plugin: 'docket', key: 'flagFilters' } as const, {})
 const periodFilter = atom({ plugin: 'docket', key: 'period' } as const, 'tout' as Period)
+// A wide board keeps filters of its own, apart from the side panel's.
+const wideFilters = atom({ plugin: 'docket', key: 'wideFilters' } as const, {
+  status: 'tous',
+  period: 'tout',
+  flags: {},
+  showSnoozed: false,
+} as BoardFilters)
 // The search is this board's own; it is not kept between conversations.
 const searchQuery = atom({ plugin: 'docket', key: 'search' } as const, '')
 
@@ -642,7 +650,10 @@ export const register: Register = (on, options) => {
     const rows = buildAllRows(await read($, desktop), await read($, all), await read($, remote))
     const git = await read($, gitStates)
     await read($, tick)
-    const chosen = await read($, flagFilters)
+    // A wide board reads and saves its own filters; the side panel keeps its own.
+    const isWideBoard = columns >= BOARD_COLUMNS_MIN
+    const wideView = isWideBoard ? await read($, wideFilters) : undefined
+    const chosen = wideView?.flags ?? (await read($, flagFilters))
     const query = await read($, searchQuery)
     // A search looks through every conversation: the filters wait, unchanged, for it to end.
     const isSearching = query.trim() !== ''
@@ -652,7 +663,7 @@ export const register: Register = (on, options) => {
       (isVisible(flag.id) ? chosen[flag.id] : undefined) ?? 'tous'
     const appliedFlagFilter = (flag: FlagDef): FlagFilter => (isSearching ? 'tous' : flagFilter(flag))
     const statusChoice: StatusFilter = isVisible(STATUS_FILTER_ID)
-      ? await read($, statusFilter)
+      ? (wideView?.status ?? (await read($, statusFilter)))
       : ALL_STATUSES
     const selected = resolveStatusFilter(statusChoice)
     const hereId = await $.session.id()
@@ -661,11 +672,11 @@ export const register: Register = (on, options) => {
     if (rows.some(row => isRunning(row, now))) {
       startRunningRefresh($)
     }
-    const period = isVisible(PERIOD_FILTER_ID) ? await read($, periodFilter) : 'tout'
+    const period = isVisible(PERIOD_FILTER_ID) ? (wideView?.period ?? (await read($, periodFilter))) : 'tout'
     const since = isSearching ? Number.NEGATIVE_INFINITY : findPeriodStart(period, now)
     const asleep = await read($, snoozes)
     const wakesAt = (row: Row) => asleep[snoozeKey(row)] ?? 0
-    const isShowingSnoozed = await read($, showSnoozed)
+    const isShowingSnoozed = wideView?.showSnoozed ?? (await read($, showSnoozed))
     const snoozedCount = rows.filter(row => isSnoozed(asleep, snoozeKey(row), now)).length
     // A snoozed conversation is left out, the group of what waits on you included,
     // until it wakes up, unless the board shows them; a search still finds it.
@@ -689,7 +700,7 @@ export const register: Register = (on, options) => {
     // after what waits on you, as the status filter allows; they leave their group.
     const groupOf = (row: Row) => (hasStatus(row) ? (row.entry?.status ?? NO_STATUS) : NO_STATUS)
     const running =
-      columns >= BOARD_COLUMNS_MIN
+      isWideBoard
         ? shown.filter(row => !isYourTurn(row) && isRunning(row, now) && isShown(groupOf(row)))
         : []
     const listed = shown.filter(row => !isYourTurn(row) && !running.includes(row))
@@ -715,7 +726,7 @@ export const register: Register = (on, options) => {
       })),
       { value: ALL_STATUSES, label: t.checkAll },
     ]
-    const pickStatus = (value: string) => saveStatusFilter($, pickStatusFilter(selected, value))
+    const pickStatus = (value: string) => saveStatusFilter($, pickStatusFilter(selected, value), isWideBoard)
     const renderRow = (row: Row) => (
       // A mail-like card, every line from its left edge: the title, the facts, the git
       // state, the note and the summary; last, the glyph, the pull request and the age, and 🌙.
@@ -937,7 +948,7 @@ export const register: Register = (on, options) => {
                 key="period-filter"
                 options={periodOptions}
                 value={period}
-                onSelect={(value: string) => savePeriod($, parsePeriod(value))}
+                onSelect={(value: string) => savePeriod($, parsePeriod(value), isWideBoard)}
               />,
             ),
             ...flags().map(flag =>
@@ -948,7 +959,7 @@ export const register: Register = (on, options) => {
                   key={`flag-filter-${flag.id}`}
                   options={flagOptions(flag)}
                   value={flagFilter(flag)}
-                  onSelect={(value: string) => saveFlagFilter($, flag.id, parseFlagFilter(value))}
+                  onSelect={(value: string) => saveFlagFilter($, flag.id, parseFlagFilter(value), isWideBoard)}
                 />,
               ),
             ),
@@ -976,7 +987,7 @@ export const register: Register = (on, options) => {
                   label={option.label}
                   variant={period === option.value ? 'primary' : undefined}
                   dimColor={period !== option.value}
-                  onPress={() => savePeriod($, option.value)}
+                  onPress={() => savePeriod($, option.value, isWideBoard)}
                 />
               ))}
             </Box>
@@ -998,7 +1009,7 @@ export const register: Register = (on, options) => {
                     label={option.label}
                     variant={option.value === flagFilter(flag) ? 'primary' : undefined}
                     dimColor={option.value !== flagFilter(flag)}
-                    onPress={() => saveFlagFilter($, flag.id, option.value)}
+                    onPress={() => saveFlagFilter($, flag.id, option.value, isWideBoard)}
                   />
                 ))}
               </Box>
@@ -1016,7 +1027,7 @@ export const register: Register = (on, options) => {
         .filter(group => isShown(group.id) && group.rows.length > 0)
         .map(group => ({ id: group.id, heading: `${group.label} (${group.rows.length})`, rows: group.rows })),
     ]
-    const isWide = columns >= BOARD_COLUMNS_MIN && sectionList.length > 1
+    const isWide = isWideBoard && sectionList.length > 1
     if (isWide) {
       cardColumns = Math.floor(columns / sectionList.length) - 3
     }
@@ -1068,7 +1079,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column" gap={1}>
             {filterIds().map(id => fallbackRows[id])}
           </Box>
-        ) : columns >= BOARD_COLUMNS_MIN ? (
+        ) : isWideBoard ? (
           // A wide board: every picker on one line, from the left, close together.
           <Box key="filter-line" flexDirection="row" flexWrap="wrap" alignItems="flex-start" gap={4}>
             {pickers.map(picker => picker.node(false))}
@@ -1102,7 +1113,7 @@ export const register: Register = (on, options) => {
               plain
               label={t.showSnoozed(isShowingSnoozed, snoozedCount)}
               dimColor={!isShowingSnoozed}
-              onPress={() => saveShowSnoozed($, !isShowingSnoozed)}
+              onPress={() => saveShowSnoozed($, !isShowingSnoozed, isWideBoard)}
             />
             <Button
               key="refresh"
@@ -1210,48 +1221,56 @@ async function removeEntry($: EngineInterface, entry: Entry): Promise<void> {
 
 // The board's filters, shared by every conversation so the board opens as it was left.
 // A flag filter is kept by the flag's id, so it outlives a flag removed then added back.
-type Filters = {
-  status: StatusFilter
-  period: Period
-  flags: Record<string, FlagFilter>
-  showSnoozed: boolean
-}
+type Filters = BoardFilters
 
 const FILTERS_KEY = 'filters'
+// A wide board's own filters; until it has any, it starts from the side panel's.
+const WIDE_FILTERS_KEY = 'filtersWide'
 
-async function saveStatusFilter($: EngineInterface, status: StatusFilter): Promise<void> {
-  const filters = { ...(await readStoredFilters($)), status }
-  await storeFilters($, filters)
-  await applyFilters($, filters)
+async function saveFilters(
+  $: EngineInterface,
+  isWide: boolean,
+  change: (filters: Filters) => Filters,
+): Promise<void> {
+  const filters = change(await readStoredFilters($, isWide))
+  await storeFilters($, filters, isWide)
+  await applyFilters($, filters, isWide)
+  // A wide board with no filters of its own yet follows the side panel's.
+  if (!isWide) {
+    await applyFilters($, await readStoredFilters($, true), true)
+  }
 }
 
-async function savePeriod($: EngineInterface, period: Period): Promise<void> {
-  const filters = { ...(await readStoredFilters($)), period }
-  await storeFilters($, filters)
-  await applyFilters($, filters)
+async function saveStatusFilter($: EngineInterface, status: StatusFilter, isWide = false): Promise<void> {
+  await saveFilters($, isWide, filters => ({ ...filters, status }))
 }
 
-async function saveFlagFilter($: EngineInterface, id: string, value: FlagFilter): Promise<void> {
-  const stored = await readStoredFilters($)
-  const filters = { ...stored, flags: { ...stored.flags, [id]: value } }
-  await storeFilters($, filters)
-  await applyFilters($, filters)
+async function savePeriod($: EngineInterface, period: Period, isWide = false): Promise<void> {
+  await saveFilters($, isWide, filters => ({ ...filters, period }))
+}
+
+async function saveFlagFilter(
+  $: EngineInterface,
+  id: string,
+  value: FlagFilter,
+  isWide = false,
+): Promise<void> {
+  await saveFilters($, isWide, filters => ({ ...filters, flags: { ...filters.flags, [id]: value } }))
 }
 
 // The filters as kept: the snoozed conversations' toggle only once it is on.
-async function storeFilters($: EngineInterface, filters: Filters): Promise<void> {
+async function storeFilters($: EngineInterface, filters: Filters, isWide = false): Promise<void> {
   const { showSnoozed: isShowingSnoozed, ...rest } = filters
-  await $.store.set(FILTERS_KEY, isShowingSnoozed ? filters : rest)
+  await $.store.set(isWide ? WIDE_FILTERS_KEY : FILTERS_KEY, isShowingSnoozed ? filters : rest)
 }
 
-async function saveShowSnoozed($: EngineInterface, isOn: boolean): Promise<void> {
-  const filters = { ...(await readStoredFilters($)), showSnoozed: isOn }
-  await storeFilters($, filters)
-  await applyFilters($, filters)
+async function saveShowSnoozed($: EngineInterface, isOn: boolean, isWide = false): Promise<void> {
+  await saveFilters($, isWide, filters => ({ ...filters, showSnoozed: isOn }))
 }
 
 async function loadFilters($: EngineInterface): Promise<void> {
   await applyFilters($, await readStoredFilters($))
+  await applyFilters($, await readStoredFilters($, true), true)
 }
 
 const SNOOZES_KEY = 'snoozes'
@@ -1372,7 +1391,13 @@ function toSearchText(text: string): string {
     .trim()
 }
 
-async function applyFilters($: EngineInterface, filters: Filters): Promise<void> {
+async function applyFilters($: EngineInterface, filters: Filters, isWide = false): Promise<void> {
+  if (isWide) {
+    if (JSON.stringify(await read($, wideFilters)) !== JSON.stringify(filters)) {
+      await update($, wideFilters, () => filters)
+    }
+    return
+  }
   if (JSON.stringify(await read($, statusFilter)) !== JSON.stringify(filters.status)) {
     await update($, statusFilter, () => filters.status)
   }
@@ -1387,8 +1412,12 @@ async function applyFilters($: EngineInterface, filters: Filters): Promise<void>
   }
 }
 
-async function readStoredFilters($: EngineInterface): Promise<Filters> {
-  const stored = await $.store.get(FILTERS_KEY)
+async function readStoredFilters($: EngineInterface, isWide = false): Promise<Filters> {
+  const kept = isWide ? await $.store.get(WIDE_FILTERS_KEY) : undefined
+  if (isWide && (typeof kept !== 'object' || kept === null)) {
+    return readStoredFilters($)
+  }
+  const stored = isWide ? kept : await $.store.get(FILTERS_KEY)
   const value =
     typeof stored === 'object' && stored !== null ? (stored as Record<string, unknown>) : {}
 

@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.2',
+    title: '🏷️ Docket 0.12.3',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1742,4 +1742,30 @@ test('a wide board gives the running conversations a column of their own', FR, a
   expect(rest).toContain('Au repos')
   expect(rest).not.toContain('Occupée')
   await wide.unmount()
+})
+
+test('a wide board keeps filters of its own, started from the side panel ones', FR, async ($, on) => {
+  const store = mockEngine(on, { 'session:other': OTHER })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: 'en-cours' })
+  const period = async (ui: { find: (q: { type: string; key: string }) => Promise<{ props: { value?: unknown } } | undefined> }) =>
+    (await ui.find({ type: 'Select', key: 'period-filter' }))?.props.value
+
+  const narrow = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await narrow.select({ key: 'period-filter', value: '7d' })
+  await narrow.unmount()
+
+  // The wide board starts from the side panel's filters, then keeps its own.
+  const wide = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, bodyColumns: 160 } })
+  expect(await period(wide)).toBe('7d')
+  await wide.select({ key: 'period-filter', value: '1h' })
+  expect(await period(wide)).toBe('1h')
+  await wide.unmount()
+
+  const back = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await period(back)).toBe('7d')
+  await back.unmount()
+  expect((store.get('filters') as { period: string }).period).toBe('7d')
+  expect((store.get('filtersWide') as { period: string }).period).toBe('1h')
 })
