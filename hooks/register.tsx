@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.6'
+const VERSION = '0.12.7'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -2241,6 +2241,9 @@ async function readTranscriptTurn(
 
 function findTurnState(text: string): boolean | undefined {
   const lines = text.split('\n')
+  // A command run directly (such as /docket) writes the person's line, then a
+  // local_command entry, and starts no turn: its lines are skipped.
+  let isLocalCommand = false
   for (let index = lines.length - 1; index >= 0; index--) {
     let entry: Record<string, unknown>
     try {
@@ -2252,6 +2255,9 @@ function findTurnState(text: string): boolean | undefined {
     if (entry.type === 'system') {
       if (entry.subtype === 'stop_hook_summary' || entry.subtype === 'turn_duration') {
         return false
+      }
+      if (entry.subtype === 'local_command') {
+        isLocalCommand = true
       }
       continue
     }
@@ -2265,6 +2271,10 @@ function findTurnState(text: string): boolean | undefined {
       }
       const content = message.content
       const said = typeof content === 'string' ? content : JSON.stringify(content ?? '')
+      if (isLocalCommand && /<command-name>|<local-command-(?:stdout|stderr)>/.test(said)) {
+        continue
+      }
+      isLocalCommand = false
       return !said.includes('[Request interrupted')
     }
   }

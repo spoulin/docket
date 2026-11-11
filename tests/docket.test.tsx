@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.6',
+    title: '🏷️ Docket 0.12.7',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1387,6 +1387,18 @@ test('the transcript says a turn runs when the app record does not', FR, async (
   writtenAt = 3_599_000
   await clock.advance(5_000)
   await clock.advance(1)
+  expect(await findSpinners(ui)).toHaveLength(0)
+
+  // A command run directly afterwards, such as /docket, starts no turn.
+  text = [
+    text,
+    line({ type: 'queue-operation' }),
+    line({ type: 'user', isMeta: true, message: { content: '<local-command-caveat>Run directly</local-command-caveat>' } }),
+    line({ type: 'user', message: { content: '<command-name>/docket</command-name>\n<command-args>termine</command-args>' } }),
+    line({ type: 'system', subtype: 'local_command' }),
+  ].join('\n')
+  writtenAt = 3_604_000
+  await clock.advance(30_000)
   expect(await findSpinners(ui)).toHaveLength(0)
   await ui.unmount()
 })
