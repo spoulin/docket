@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.5'
+const VERSION = '0.12.6'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -670,11 +670,6 @@ export const register: Register = (on, options) => {
     const columns = 'bodyColumns' in e.props ? e.props.bodyColumns : 40
     // A card's rule spans its column: the whole board, or one group's column when wide.
     let cardColumns = columns
-    if (columns !== lastPaneColumns) {
-      // Kept to tune BOARD_COLUMNS_MIN: what width each surface reports.
-      lastPaneColumns = columns
-      void $.store.set('paneColumns', { columns, surface: e.surface }).catch(() => undefined)
-    }
     const separator = (key: string, width = columns) =>
       Svg === undefined ? (
         <Box key={key}>
@@ -1491,7 +1486,6 @@ async function readStoredFilters($: EngineInterface, isWide = false): Promise<Fi
 // order move with time even when no data changed.
 // When the data was last read; a board drawn long after reads it again.
 let lastRefreshAt = 0
-let lastPaneColumns = 0
 
 // The quick reread while a shown board has a spinner: a mod hears no other
 // conversation's turn end, so the board looks again soon. It never asks git.
