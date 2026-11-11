@@ -1024,7 +1024,7 @@ export const register: Register = (on, options) => {
           <Box key="rule-refresh" marginY={1}>
             {separator('rule-refresh-line')}
           </Box>
-          <Box key="refresh-row" flexDirection="row" justifyContent="flex-end" gap={1}>
+          <Box key="refresh-row" flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
             <Button
               key="show-snoozed"
               plain

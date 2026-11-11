@@ -1537,6 +1537,8 @@ test('a snooze hides a conversation for a while, and the search still finds it',
   expect((await ui.find({ type: 'Button', key: 'show-snoozed' }))?.props.label).toBe('☐ 💤 En snooze (1)')
   const board = JSON.stringify(await ui.find({ type: 'Box', key: 'refresh-row' } as never))
   expect(board.indexOf('"key":"show-snoozed"')).toBeLessThan(board.indexOf('"key":"refresh"'))
+  // The toggle sits at the left of the bar, ↻ at its right.
+  expect((await ui.find({ type: 'Box', key: 'refresh-row' } as never))?.props.justifyContent).toBe('space-between')
   await ui.press({ key: 'show-snoozed' })
   expect((await ui.find({ type: 'Button', key: 'show-snoozed' }))?.props.label).toBe('☑ 💤 En snooze (1)')
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()

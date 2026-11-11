@@ -18,7 +18,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - A short note per conversation says why it waits or what comes next.
 - 💤, at the bottom right of each row, snoozes a conversation for 5, 10, 15 or 30 minutes, an hour or a day: whatever its status, it leaves the board, the Your turn group and the band's count, and comes back once the time is up.
   The search still finds it, with the time left (`💤 25 min`); its 💤 then offers to wake it up now.
-  `☐ 💤 Snoozed (2)`, left of ↻, shows them again on the board until pressed again.
+  `☐ 💤 Snoozed (2)`, at the left of ↻'s bar, shows them again on the board until pressed again.
   Every conversation's board shares the snoozes, and so do your other computers with a sync folder: the last snooze or wake-up made on a conversation, on any computer, wins.
 - Each row tells what git still holds of the branches the conversation committed on: `✎ uncommitted`, `↑2 unpushed`, `⑂ not merged`.
   Git is asked about a conversation's branches when you come into it, and again right after Claude runs a git command there that changes a branch (commit, push, merge…).
