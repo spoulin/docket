@@ -1519,10 +1519,15 @@ test('a snooze hides a conversation for a while, and the search still finds it',
     '1d',
   ])
   expect(await ui.find({ type: 'Box', key: 'your-turn' } as never)).toBeTruthy()
-  // At the card's bottom right, after the summary, so the title keeps the width.
+  // At the bottom of the card, after the summary, so the title keeps the width.
   const card = JSON.stringify(await ui.find({ type: 'Box', key: 'row-a' } as never))
   expect(card.indexOf('"key":"snooze-a"')).toBeGreaterThan(card.indexOf('Choisis une option'))
-  expect((await ui.find({ type: 'Box', key: 'snooze-row-a' } as never))?.props.justifyContent).toBe('flex-end')
+  // On that last line, the age at the left and 💤 at the right.
+  const last = await ui.find({ type: 'Box', key: 'snooze-row-a' } as never)
+  expect(last?.props.justifyContent).toBe('space-between')
+  const line = JSON.stringify(last)
+  expect(line.indexOf('"key":"age-a"')).toBeGreaterThan(-1)
+  expect(line.indexOf('"key":"age-a"')).toBeLessThan(line.indexOf('"key":"snooze-a"'))
 
   // Snoozed, it leaves the frame of what waits on you and the band's count.
   await ui.select({ key: 'snooze-a', value: '10m' })

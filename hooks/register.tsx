@@ -736,26 +736,6 @@ export const register: Register = (on, options) => {
                   </Text>
                 )}
               </Box>
-              <Box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
-                {isRunning(row, now) &&
-                  (Svg === undefined ? (
-                    <Text key={`running-${row.key}`} dimColor size="caption">
-                      ⋯
-                    </Text>
-                  ) : (
-                    <Svg
-                      key={`running-${row.key}`}
-                      source={SPINNER_SVG}
-                      alt={t.running}
-                      width={12}
-                      height={12}
-                      isInteractive
-                    />
-                  ))}
-                <Text dimColor size="caption">
-                  {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
-                </Text>
-              </Box>
             </Box>
             <Box flexDirection="row" alignItems="center" gap={1}>
               {findTicket(row.title) !== undefined && (
@@ -817,9 +797,35 @@ export const register: Register = (on, options) => {
             {formatSummary(row)}
           </Text>
         )}
-        {Select !== undefined && (
-          // At the card's bottom right, so the title keeps the width.
-          <Box key={`snooze-row-${row.key}`} flexDirection="row" justifyContent="flex-end">
+        {/* The card's last line: the spinner and the age at the left, 💤 at the right, so the title keeps the width. */}
+        <Box
+          key={`snooze-row-${row.key}`}
+          flexDirection="row"
+          justifyContent="space-between"
+          alignItems="center"
+          gap={1}
+        >
+          <Box key={`age-${row.key}`} flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+            {isRunning(row, now) &&
+              (Svg === undefined ? (
+                <Text key={`running-${row.key}`} dimColor size="caption">
+                  ⋯
+                </Text>
+              ) : (
+                <Svg
+                  key={`running-${row.key}`}
+                  source={SPINNER_SVG}
+                  alt={t.running}
+                  width={12}
+                  height={12}
+                  isInteractive
+                />
+              ))}
+            <Text dimColor size="caption">
+              {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
+            </Text>
+          </Box>
+          {Select !== undefined && (
             <Select
               key={`snooze-${row.key}`}
               options={[
@@ -833,8 +839,8 @@ export const register: Register = (on, options) => {
               value={SNOOZE_NONE}
               onSelect={(value: string) => snooze($, snoozeKey(row), value)}
             />
-          </Box>
-        )}
+          )}
+        </Box>
       </Box>
     )
     const listRows = (list: readonly Row[]) =>
