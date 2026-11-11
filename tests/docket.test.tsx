@@ -1282,6 +1282,47 @@ test('a turn quiet for 10 minutes shows no spinner, and the terminal shows a dot
   await terminal.unmount()
 })
 
+test('a turn whose start the app wrote late still shows a spinner, until its summary', FR, async ($, on) => {
+  // Started from another device: the turn's start came 6 seconds after the message.
+  const late = {
+    latestUserFrameAt: 3_580_000,
+    lastTurnEdgeAt: 3_586_000,
+    lastActivityAt: 3_590_000,
+    completedTurns: 3,
+    lastAssistantUuid: 'answer-4',
+    postTurnSummaryFor: 'answer-3',
+  }
+  const files: Record<string, string> = {
+    'local_late.json': desktopRecord('late', 'Lancée de loin', false, late),
+    // A first turn, not ended: Claude wrote and no turn is counted yet.
+    'local_first.json': desktopRecord('first', 'Première', false, {
+      latestUserFrameAt: 3_580_000,
+      lastTurnEdgeAt: 3_586_000,
+      lastActivityAt: 3_590_000,
+      lastAssistantUuid: 'answer-1',
+    }),
+    // Ended and summed up: no spinner.
+    'local_done.json': desktopRecord('done', 'Finie', false, { ...late, postTurnSummaryFor: 'answer-4' }),
+  }
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, files)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await findSpinners(ui)).toHaveLength(2)
+
+  // The app sums up the turn once it ends: the spinner stops on the next quick reread.
+  files['local_late.json'] = desktopRecord('late', 'Lancée de loin', false, {
+    ...late,
+    lastTurnEdgeAt: 3_595_000,
+    postTurnSummaryFor: 'answer-4',
+  })
+  await clock.advance(5_000)
+  await clock.advance(1)
+  expect(await findSpinners(ui)).toHaveLength(1)
+  await ui.unmount()
+})
+
 const SYNC = {
   options: { ...FR.options, syncFolder: '~/Cloud/docket', machineName: 'Portable' },
 }

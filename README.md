@@ -196,6 +196,7 @@ Set `syncFolder` to the same synced folder on each computer, for example in iClo
 - Each computer writes one file of its own there, `machines/<id>.json`: its conversations, their statuses, flags and notes, and its git signs. It reads the others' files and never writes them.
 - The board shows the other computers' conversations in their groups, named after their computer, with their spinner and git signs.
 - A click opens one in the app through Remote Control, when Remote Control is on for it; otherwise its title is plain text.
+- Opened this way, it shows neither the band nor the board, which run on its own computer; `/docket` works there and sets its status.
 - A conversation's status is set where it runs, in its band or with `/docket`.
 - What shows up depends on the sync service: a few seconds, sometimes more.
 - iCloud can take files off the disk to save space: in the Finder, right-click the folder and pick Keep Downloaded.

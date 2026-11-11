@@ -1847,17 +1847,34 @@ function parseDesktopSession(text: string): DesktopSession | null {
     ...parseTurnSummary(record.postTurnSummary),
     ...parsePullRequest(record.prs),
     ...parseWrittenBranches(record.writtenBranches),
-    ...parseRunningTurn(record.latestUserFrameAt, record.lastTurnEdgeAt),
+    ...parseRunningTurn(record),
     ...parseRemoteId(record.bridgeSessionIds),
   }
 }
 
-// A turn runs while the person's last message is newer than the last start or end
-// of a turn: the app writes the end of a turn after the message that started it.
-function parseRunningTurn(userFrameAt: unknown, turnEdgeAt: unknown): Pick<DesktopSession, 'turnStartedAt'> {
-  return typeof userFrameAt === 'number' && typeof turnEdgeAt === 'number' && userFrameAt >= turnEdgeAt
-    ? { turnStartedAt: userFrameAt }
-    : {}
+// Whether a turn runs, from three marks of the app's record; any one of them says so.
+// - The person's last message is newer than the last start or end of a turn: the app
+//   writes the end of a turn after the message that started it.
+// - Claude wrote after the last turn summary: the app sums up each turn once it ends,
+//   so a summary of an earlier message means the turn goes on. This holds when the
+//   app wrote the turn's start a few seconds after the message, as for a conversation
+//   started from another device.
+// - A first turn not ended yet: Claude wrote, and no turn is counted.
+function parseRunningTurn(record: Record<string, unknown>): Pick<DesktopSession, 'turnStartedAt'> {
+  const userFrameAt = record.latestUserFrameAt
+  const turnEdgeAt = record.lastTurnEdgeAt
+  if (typeof userFrameAt !== 'number' || typeof turnEdgeAt !== 'number') {
+    return {}
+  }
+  const lastAnswer = record.lastAssistantUuid
+  const summedUp = record.postTurnSummaryFor
+  const hasAnswer = typeof lastAnswer === 'string' && lastAnswer !== ''
+  const isRunning =
+    userFrameAt >= turnEdgeAt ||
+    (hasAnswer && typeof summedUp === 'string' && summedUp !== '' && summedUp !== lastAnswer) ||
+    (hasAnswer && summedUp == null && (typeof record.completedTurns !== 'number' || record.completedTurns === 0))
+
+  return isRunning ? { turnStartedAt: userFrameAt } : {}
 }
 
 // An app that quits during a turn never writes its end: a turn quiet this long is over.
