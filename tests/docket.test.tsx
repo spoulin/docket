@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.3',
+    title: '🏷️ Docket 0.12.4',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1735,7 +1735,7 @@ test('a wide board gives the running conversations a column of their own', FR, a
 
   const wide = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, bodyColumns: 160 } })
   const column = JSON.stringify(await wide.find({ type: 'Box', key: 'group-running' }))
-  expect(column).toContain('⚙️ En marche (1)')
+  expect(column).toContain('✻ Clauding (1)')
   expect(column).toContain('Occupée')
   expect(column).not.toContain('Au repos')
   const rest = JSON.stringify(await wide.find({ type: 'Box', key: 'group-aucun' }))

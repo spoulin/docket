@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.3'
+const VERSION = '0.12.4'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -56,7 +56,7 @@ const TEXTS = {
     noteCleared: 'Note cleared.',
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `⚠️ Your turn (${count})`,
-    runningGroup: (count: number) => `⚙️ Running (${count})`,
+    runningGroup: (count: number) => `✻ Clauding (${count})`,
     saveFailed: 'The conversation status could not be saved.',
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
@@ -138,7 +138,7 @@ const TEXTS = {
     noteCleared: 'Note effacée.',
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `⚠️ À toi (${count})`,
-    runningGroup: (count: number) => `⚙️ En marche (${count})`,
+    runningGroup: (count: number) => `✻ Clauding (${count})`,
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
