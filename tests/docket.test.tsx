@@ -758,7 +758,7 @@ test('the band counts the conversations that wait on the person', FR, async ($, 
   await band.press({ key: 'your-turn' })
   await band.unmount()
 
-  // The your-turn section heads the board, whatever the filters, above the statuses.
+  // The your-turn section sits under the filters, whatever they are, above the statuses.
   await $.command.run({ command: 'docket', args: 'termine' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /^⚠️ À toi/ })).toBeFalsy()
@@ -771,6 +771,12 @@ test('the band counts the conversations that wait on the person', FR, async ($, 
     borderStyle: 'single',
     borderColor: 'promptBorder',
   })
+  // In order: the filters, the orange frame, then the first group.
+  const board = JSON.stringify(await ui.find({ type: 'Box' }))
+  const at = (key: string) => board.indexOf(`"key":"${key}`)
+  expect(at('filters')).toBeGreaterThan(-1)
+  expect(at('your-turn')).toBeGreaterThan(at('filters'))
+  expect(at('group-')).toBeGreaterThan(at('your-turn'))
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
   expect(await ui.find({ type: 'Markdown', key: 'open-b' })).toBeTruthy()
   // d waits on no one and has no status: the default filter hides it.

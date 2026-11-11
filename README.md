@@ -14,7 +14,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - Each conversation gets a small glyph, colored by project, to spot it at a glance.
 - Titles that name a ticket get a link to it, with rules you set.
 - The band counts the other conversations that wait on you (⚠️ 2); 🏷️ opens the board.
-- An orange frame heads the board when something waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
+- An orange frame, between the filters and the groups, lists what waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
 - A short note per conversation says why it waits or what comes next.
 - Each row tells what git still holds of the branches the conversation committed on: `✎ uncommitted`, `↑2 unpushed`, `⑂ not merged`.
   Git is asked about a conversation's branches when you come into it, and again right after Claude runs a git command there that changes a branch (commit, push, merge…).

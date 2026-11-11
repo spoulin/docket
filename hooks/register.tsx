@@ -583,7 +583,7 @@ export const register: Register = (on, options) => {
         flags().every(flag => matchesFlag(row, flag, appliedFlagFilter(flag))),
     )
     const periodOptions = PERIODS.map(id => ({ value: id, label: t.periods[id] }))
-    // What waits on the person heads the board, filters aside, and is not repeated below.
+    // What waits on the person sits between the filters and the groups, filters aside, and is not repeated below.
     const isYourTurn = (row: Row) => row.attention === 'blocked' && row.key !== hereId
     const yourTurn = found.filter(isYourTurn)
     const listed = shown.filter(row => !isYourTurn(row))
@@ -842,18 +842,6 @@ export const register: Register = (on, options) => {
     const pickers = filterIds().flatMap(id => allPickers.filter(picker => picker.id === id))
     return (
       <Box flexDirection="column" gap={1}>
-        {yourTurn.length > 0 && (
-          <Box
-            key="your-turn"
-            flexDirection="column"
-            gap={1}
-            borderStyle="single"
-            borderColor="warning"
-            paddingX={1}
-          >
-            {listRows(yourTurn)}
-          </Box>
-        )}
         <Box key="filters" flexDirection="column" borderStyle="single" borderColor="promptBorder" paddingX={1}>
           {'Input' in elements && (
             <Box key="search-row" flexDirection="column" alignItems="stretch" width="100%">
@@ -923,6 +911,19 @@ export const register: Register = (on, options) => {
             </Box>
           )}
         </Box>
+        {yourTurn.length > 0 && (
+          <Box
+            key="your-turn"
+            flexDirection="column"
+            gap={1}
+            marginTop={1}
+            borderStyle="single"
+            borderColor="warning"
+            paddingX={1}
+          >
+            {listRows(yourTurn)}
+          </Box>
+        )}
         {groups.every(group => !isShown(group.id) || group.rows.length === 0) && (
           <Text dimColor>{query.trim() === '' ? t.empty : t.noMatch(query.trim())}</Text>
         )}
