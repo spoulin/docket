@@ -15,7 +15,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.11.12'
+const VERSION = '0.11.13'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -100,10 +100,10 @@ const TEXTS = {
     untitled: 'Untitled conversation',
     never: 'never',
     running: 'Claude is working',
-    snooze: '💤',
-    snoozedFor: (rest: string) => `💤 ${rest}`,
+    snooze: '🌙',
+    snoozedFor: (rest: string) => `🌙 ${rest}`,
     wake: 'Wake up',
-    showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 💤 Snoozed (${count})`,
+    showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 🌙 Snoozed (${count})`,
     local: '🏠 Local',
     machine: (name: string) => `💻 ${name}`,
     snoozes: {
@@ -181,10 +181,10 @@ const TEXTS = {
     untitled: 'Conversation sans titre',
     never: 'jamais',
     running: 'Claude travaille',
-    snooze: '💤',
-    snoozedFor: (rest: string) => `💤 ${rest}`,
+    snooze: '🌙',
+    snoozedFor: (rest: string) => `🌙 ${rest}`,
     wake: 'Réveiller',
-    showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 💤 En snooze (${count})`,
+    showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 🌙 En snooze (${count})`,
     local: '🏠 Local',
     machine: (name: string) => `💻 ${name}`,
     snoozes: {
@@ -700,7 +700,7 @@ export const register: Register = (on, options) => {
     const pickStatus = (value: string) => saveStatusFilter($, pickStatusFilter(selected, value))
     const renderRow = (row: Row) => (
       // A mail-like card, every line from its left edge: the title, the facts, the git
-      // state, the note and the summary; last, the glyph, the pull request and the age, and 💤.
+      // state, the note and the summary; last, the glyph, the pull request and the age, and 🌙.
       <Box key={`row-${row.key}`} flexDirection="column" gap={1}>
         <Box flexDirection="row" alignItems="flex-start" gap={2}>
           <Box flexDirection="column" flexGrow={1} flexShrink={1}>
@@ -788,7 +788,7 @@ export const register: Register = (on, options) => {
             {formatSummary(row)}
           </Text>
         )}
-        {/* The card's last line: the glyph, the spinner and the age at the left, 💤 at the right; the lines above all start at the card's left edge. */}
+        {/* The card's last line: the glyph, the spinner and the age at the left, 🌙 at the right; the lines above all start at the card's left edge. */}
         <Box
           key={`snooze-row-${row.key}`}
           flexDirection="row"
@@ -796,7 +796,7 @@ export const register: Register = (on, options) => {
           alignItems="center"
           gap={1}
         >
-          {/* The glyph, then the pull request above the age, as tall together as the 💤 picker. */}
+          {/* The glyph, then the pull request above the age, as tall together as the 🌙 picker. */}
           <Box key={`mark-${row.key}`} flexDirection="row" alignItems="center" gap={2} flexShrink={1}>
             {Svg === undefined ? (
               <Text color={glyphColor(row.hostId ?? row.key, findProject(row))}>

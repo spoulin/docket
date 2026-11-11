@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.11.12',
+    title: '🏷️ Docket 0.11.13',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1524,7 +1524,7 @@ test('a snooze hides a conversation for a while, and the search still finds it',
   // At the bottom of the card, after the summary, so the title keeps the width.
   const card = JSON.stringify(await ui.find({ type: 'Box', key: 'row-a' } as never))
   expect(card.indexOf('"key":"snooze-a"')).toBeGreaterThan(card.indexOf('Choisis une option'))
-  // On that last line, the age at the left and 💤 at the right.
+  // On that last line, the age at the left and 🌙 at the right.
   const last = await ui.find({ type: 'Box', key: 'snooze-row-a' } as never)
   expect(last?.props.justifyContent).toBe('space-between')
   const line = JSON.stringify(last)
@@ -1544,15 +1544,15 @@ test('a snooze hides a conversation for a while, and the search still finds it',
   await band.unmount()
 
   // A button left of ↻ shows the snoozed conversations again, until pressed again.
-  expect((await ui.find({ type: 'Button', key: 'show-snoozed' }))?.props.label).toBe('☐ 💤 En snooze (1)')
+  expect((await ui.find({ type: 'Button', key: 'show-snoozed' }))?.props.label).toBe('☐ 🌙 En snooze (1)')
   const board = JSON.stringify(await ui.find({ type: 'Box', key: 'refresh-row' } as never))
   expect(board.indexOf('"key":"show-snoozed"')).toBeLessThan(board.indexOf('"key":"refresh"'))
   // The toggle sits at the left of the bar, ↻ at its right.
   expect((await ui.find({ type: 'Box', key: 'refresh-row' } as never))?.props.justifyContent).toBe('space-between')
   await ui.press({ key: 'show-snoozed' })
-  expect((await ui.find({ type: 'Button', key: 'show-snoozed' }))?.props.label).toBe('☑ 💤 En snooze (1)')
+  expect((await ui.find({ type: 'Button', key: 'show-snoozed' }))?.props.label).toBe('☑ 🌙 En snooze (1)')
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
-  expect((await ui.find({ type: 'Select', key: 'snooze-a' }))?.props.options[0]?.label).toBe('💤 10 min')
+  expect((await ui.find({ type: 'Select', key: 'snooze-a' }))?.props.options[0]?.label).toBe('🌙 10 min')
   expect(store.get('filters')).toMatchObject({ showSnoozed: true })
   await ui.press({ key: 'show-snoozed' })
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeFalsy()
@@ -1560,7 +1560,7 @@ test('a snooze hides a conversation for a while, and the search still finds it',
   // The search finds it, with what is left of its snooze.
   await ui.input({ key: 'search', text: 'premiere', kind: 'change' })
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
-  expect((await ui.find({ type: 'Select', key: 'snooze-a' }))?.props.options[0]?.label).toBe('💤 10 min')
+  expect((await ui.find({ type: 'Select', key: 'snooze-a' }))?.props.options[0]?.label).toBe('🌙 10 min')
   await ui.input({ key: 'search', text: '', kind: 'change' })
 
   // It wakes up on its own once the time is up.
@@ -1571,7 +1571,7 @@ test('a snooze hides a conversation for a while, and the search still finds it',
   await ui.select({ key: 'snooze-a', value: '1d' })
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeFalsy()
   await ui.input({ key: 'search', text: 'premiere', kind: 'change' })
-  expect((await ui.find({ type: 'Select', key: 'snooze-a' }))?.props.options[0]?.label).toBe('💤 1 j')
+  expect((await ui.find({ type: 'Select', key: 'snooze-a' }))?.props.options[0]?.label).toBe('🌙 1 j')
   await ui.select({ key: 'snooze-a', value: 'wake' })
   await ui.input({ key: 'search', text: '', kind: 'change' })
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
@@ -1613,7 +1613,7 @@ test('the computers share their snoozes, and the last word on one wins', SYNC, a
 
   // Woken up here: this computer's word is the last, and it is published.
   await ui.input({ key: 'search', text: 'loin', kind: 'change' })
-  expect((await ui.find({ type: 'Select', key: 'snooze-far' }))?.props.options[0]?.label).toBe('💤 29 min')
+  expect((await ui.find({ type: 'Select', key: 'snooze-far' }))?.props.options[0]?.label).toBe('🌙 29 min')
   await ui.select({ key: 'snooze-far', value: 'wake' })
   await ui.input({ key: 'search', text: '', kind: 'change' })
   expect(await ui.find({ type: 'Text', text: /^Loin$/ })).toBeTruthy()

@@ -9,16 +9,16 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - The board groups every conversation by status, with a filter on status, one per flag, and a period (1 hour, today, 7 days…).
 - The status filter checks one group or several (in progress + waiting); one stays checked. "No status" is unchecked at first.
 - A search field keeps the conversations whose title, folder, ticket or note holds every word typed. While it holds text, the filters and the ↻ button hide and stop filtering; they come back as they were once it is cleared.
-- In the desktop app, each row is a card: the sidebar title; the folder and flags; the git signs on a line of their own; then, across the card, the note and the last turn summary in italics; last, the glyph with the pull request above the age at the left, and 💤 at the right.
+- In the desktop app, each row is a card: the sidebar title; the folder and flags; the git signs on a line of their own; then, across the card, the note and the last turn summary in italics; last, the glyph with the pull request above the age at the left, and 🌙 at the right.
 - A click on a title opens that conversation.
 - Each conversation gets a small glyph, colored by project, to spot it at a glance, at the bottom left of its card.
 - Titles that name a ticket get a link to it, with rules you set.
 - The band counts the other conversations that wait on you (⚠️ 2); 🏷️ opens the board.
 - A first group, `⚠️ Your turn`, between the filters and the other groups, lists what waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
 - A short note per conversation says why it waits or what comes next.
-- 💤, at the bottom right of each card, snoozes a conversation for 5, 10, 15 or 30 minutes, an hour or a day: whatever its status, it leaves the board, the Your turn group and the band's count, and comes back once the time is up.
-  The search still finds it, with the time left (`💤 25 min`); its 💤 then offers to wake it up now.
-  `☐ 💤 Snoozed (2)`, at the left of ↻'s bar, shows them again on the board until pressed again.
+- 🌙, at the bottom right of each card, snoozes a conversation for 5, 10, 15 or 30 minutes, an hour or a day: whatever its status, it leaves the board, the Your turn group and the band's count, and comes back once the time is up.
+  The search still finds it, with the time left (`🌙 25 min`); its 🌙 then offers to wake it up now.
+  `☐ 🌙 Snoozed (2)`, at the left of ↻'s bar, shows them again on the board until pressed again.
   Every conversation's board shares the snoozes, and so do your other computers with a sync folder: the last snooze or wake-up made on a conversation, on any computer, wins.
 - Each row tells what git still holds of the branches the conversation committed on: `✎ uncommitted`, `↑2 unpushed`, `⑂ not merged`.
   Git is asked about a conversation's branches when you come into it, and again right after Claude runs a git command there that changes a branch (commit, push, merge…).
