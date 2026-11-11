@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.8',
+    title: '🏷️ Docket 0.12.9',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1854,5 +1854,69 @@ test('a dashboard tells when a conversation waits on you or Claude is done', FR,
   })
   await clock.advance(30_000)
   expect(toasts).toEqual(['⚠️ Questionneuse t’attend', '✻ Occupée a fini'])
+  await ui.unmount()
+})
+
+test('a turn that closes on a question in the next-step box waits on the person', FR, async ($, on) => {
+  // The app's summary calls the turn completed.
+  const record = {
+    latestUserFrameAt: 3_580_000,
+    lastTurnEdgeAt: 3_582_000,
+    lastActivityAt: 3_582_000,
+    completedTurns: 3,
+    lastAssistantUuid: 'answer-3',
+    postTurnSummaryFor: 'answer-3',
+    postTurnSummary: { status_category: 'completed', status_detail: 'Pochettes agrandies', needs_action: '' },
+  }
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, {
+    'local_far.json': desktopRecord('far', 'Pochettes', false, record),
+  })
+  const transcript = '/Users/me/.claude/projects/-Users-me-src-my-app/far.jsonl'
+  const line = (entry: Record<string, unknown>) => JSON.stringify(entry)
+  let text = [
+    line({ type: 'user', message: { content: 'Agrandis les pochettes' } }),
+    line({
+      type: 'assistant',
+      message: {
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', name: 'mcp__ccd_turn__wrap_up', input: { ask: 'La taille te convient ?', actions: [] } }],
+      },
+    }),
+    line({ type: 'user', message: { content: [{ type: 'tool_result' }] } }),
+    line({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text' }] } }),
+    line({ type: 'system', subtype: 'stop_hook_summary' }),
+    // A command run directly afterwards changes nothing.
+    line({ type: 'user', message: { content: '<command-name>/docket</command-name>' } }),
+    line({ type: 'system', subtype: 'local_command' }),
+  ].join('\n')
+  let writtenAt = 3_590_000
+  on('fs.stat', (_, e) => {
+    if (e.path !== transcript) {
+      throw new Error('missing')
+    }
+
+    return { value: { kind: 'file' as const, size: text.length, mtimeMs: writtenAt, isLink: false } }
+  })
+  on('process.run', (_, e) => ({
+    value: { exitCode: e.argv[0] === 'tail' ? 0 : 1, stdout: e.argv[0] === 'tail' ? text : '', stderr: '' },
+  }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const yourTurn = JSON.stringify(await ui.find({ type: 'Box', key: 'your-turn' }))
+  expect(yourTurn).toContain('Pochettes')
+  expect(yourTurn).toContain('La taille te convient ?')
+
+  // Once the person answers and the next turn ends with no question, it waits no more.
+  text = [
+    text,
+    line({ type: 'user', message: { content: 'Oui, commite' } }),
+    line({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text' }] } }),
+    line({ type: 'system', subtype: 'stop_hook_summary' }),
+  ].join('\n')
+  writtenAt = 3_599_000
+  await clock.advance(30_000)
+  expect(await ui.find({ type: 'Box', key: 'your-turn' })).toBeFalsy()
   await ui.unmount()
 })

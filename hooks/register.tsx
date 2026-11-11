@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.8'
+const VERSION = '0.12.9'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -2229,7 +2229,10 @@ function parseCwd(text: string): string | undefined {
 // once it changed.
 const TRANSCRIPT_WINDOW_MS = 12 * HOUR_MS
 const TRANSCRIPT_TAIL_BYTES = 200_000
-const transcripts = new Map<string, { mtimeMs: number; isRunning: boolean | undefined }>()
+const transcripts = new Map<
+  string,
+  { mtimeMs: number; isRunning: boolean | undefined; ask: string | undefined }
+>()
 
 async function applyTranscript(
   $: EngineInterface,
@@ -2250,25 +2253,79 @@ async function applyTranscript(
   }
   let known = transcripts.get(path)
   if (known === undefined || known.mtimeMs !== stat.mtimeMs) {
-    known = { mtimeMs: stat.mtimeMs, isRunning: await readTranscriptTurn($, path, stat.size) }
+    const text = await readTranscriptTail($, path, stat.size)
+    known = {
+      mtimeMs: stat.mtimeMs,
+      isRunning: text === null ? undefined : findTurnState(text),
+      ask: text === null ? undefined : findClosingAsk(text),
+    }
     transcripts.set(path, known)
   }
   if (known.isRunning === undefined) {
     return session
   }
   const { turnStartedAt: _dropped, writtenAt: _old, ...ended } = session
+  if (known.isRunning) {
+    return { ...ended, turnStartedAt: session.turnStartedAt ?? session.lastActivityAt, writtenAt: stat.mtimeMs }
+  }
+  // A turn that ended on a question in the next-step box waits on the person, whatever
+  // the app's summary made of it.
+  if (known.ask !== undefined && session.attention !== 'blocked') {
+    return { ...ended, attention: 'blocked', summary: known.ask }
+  }
 
-  return known.isRunning
-    ? { ...ended, turnStartedAt: session.turnStartedAt ?? session.lastActivityAt, writtenAt: stat.mtimeMs }
-    : ended
+  return ended
 }
 
-// Whether the transcript's last turn still runs; undefined when it cannot tell.
-async function readTranscriptTurn(
+// The question the last turn closed on in the next-step box (its wrap-up), if any.
+// Looked for back to the person's message that started the turn; a command run
+// directly afterwards (such as /docket) is no new turn.
+function findClosingAsk(text: string): string | undefined {
+  const lines = text.split('\n')
+  let hasAnswer = false
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry: Record<string, unknown>
+    try {
+      entry = JSON.parse(lines[index] ?? '') as Record<string, unknown>
+    } catch {
+      continue
+    }
+    const content = ((entry.message ?? {}) as Record<string, unknown>).content
+    if (entry.type === 'assistant') {
+      hasAnswer = true
+      for (const part of Array.isArray(content) ? content : []) {
+        const call = part as { type?: unknown; name?: unknown; input?: { ask?: unknown } }
+        if (call.type === 'tool_use' && typeof call.name === 'string' && /wrap_up$/.test(call.name)) {
+          const ask = typeof call.input?.ask === 'string' ? call.input.ask.replace(/\s+/g, ' ').trim() : ''
+
+          return ask === '' ? undefined : ask
+        }
+      }
+      continue
+    }
+    if (entry.type !== 'user' || entry.isMeta === true) {
+      continue
+    }
+    if (Array.isArray(content) && content.every(part => (part as { type?: unknown }).type === 'tool_result')) {
+      continue
+    }
+    const said = typeof content === 'string' ? content : JSON.stringify(content ?? '')
+    if (!hasAnswer && /<command-name>|<local-command-(?:stdout|stderr)>/.test(said)) {
+      continue
+    }
+
+    return undefined
+  }
+
+  return undefined
+}
+
+// The transcript's end, where its last turn is; null when it cannot be read.
+async function readTranscriptTail(
   $: EngineInterface,
   path: string,
   size: number,
-): Promise<boolean | undefined> {
+): Promise<string | null> {
   const isWindows = (await findPlatform($)) === 'windows'
   const text = isWindows
     ? size <= TRANSCRIPT_TAIL_BYTES
@@ -2279,7 +2336,7 @@ async function readTranscriptTurn(
         .then(ran => (ran.exitCode === 0 ? ran.stdout : null))
         .catch(() => null)
 
-  return text === null ? undefined : findTurnState(text)
+  return text
 }
 
 function findTurnState(text: string): boolean | undefined {
