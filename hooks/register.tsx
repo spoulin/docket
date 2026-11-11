@@ -15,7 +15,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.11.13'
+const VERSION = '0.12.0'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -24,6 +24,8 @@ const SETTLE_MS = 3_000
 // A board drawn after this long without a refresh reads the data again: coming back
 // to a conversation redraws its board, and no event says the person came back.
 const STALE_MS = 5_000
+// From this many columns across, the board lays its groups side by side, one column each.
+const BOARD_COLUMNS_MIN = 120
 // A one-pixel gray rule, stretched to the row's width; a mid gray reads on light and dark.
 const SEPARATOR_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 1" preserveAspectRatio="none">' +
@@ -618,10 +620,17 @@ export const register: Register = (on, options) => {
     // The terminal lists no vector drawing it can show: it gets a text rule.
     const Svg = e.surface !== 'terminal' && 'Svg' in elements ? elements.Svg : undefined
     const columns = 'bodyColumns' in e.props ? e.props.bodyColumns : 40
-    const separator = (key: string) =>
+    // A card's rule spans its column: the whole board, or one group's column when wide.
+    let cardColumns = columns
+    if (columns !== lastPaneColumns) {
+      // Kept to tune BOARD_COLUMNS_MIN: what width each surface reports.
+      lastPaneColumns = columns
+      void $.store.set('paneColumns', { columns, surface: e.surface }).catch(() => undefined)
+    }
+    const separator = (key: string, width = columns) =>
       Svg === undefined ? (
         <Box key={key}>
-          <Text dimColor>{'─'.repeat(Math.max(10, columns - 2))}</Text>
+          <Text dimColor>{'─'.repeat(Math.max(10, width - 2))}</Text>
         </Box>
       ) : (
         <Box key={key}>
@@ -858,7 +867,7 @@ export const register: Register = (on, options) => {
     )
     // A thin rule closes every card, the last one before a heading included.
     const listRows = (list: readonly Row[]) =>
-      list.flatMap(row => [renderRow(row), separator(`separator-${row.key}`)])
+      list.flatMap(row => [renderRow(row), separator(`separator-${row.key}`, cardColumns)])
     // A list holding conversations of other computers is cut in two: this computer's
     // first, under "Local", then each other computer's under its name.
     const listByPlace = (prefix: string, list: readonly Row[]) => {
@@ -988,6 +997,36 @@ export const register: Register = (on, options) => {
       ),
     }
     const pickers = filterIds().flatMap(id => allPickers.filter(picker => picker.id === id))
+    // What waits on the person comes first, then each group shown that holds a conversation.
+    const sectionList = [
+      ...(yourTurn.length > 0
+        ? [{ id: 'your-turn', heading: t.yourTurn(yourTurn.length), rows: yourTurn }]
+        : []),
+      ...groups
+        .filter(group => isShown(group.id) && group.rows.length > 0)
+        .map(group => ({ id: group.id, heading: `${group.label} (${group.rows.length})`, rows: group.rows })),
+    ]
+    const isWide = columns >= BOARD_COLUMNS_MIN && sectionList.length > 1
+    if (isWide) {
+      cardColumns = Math.floor(columns / sectionList.length) - 3
+    }
+    const sections = sectionList.map(section => (
+      <Box
+        key={section.id === 'your-turn' ? 'your-turn' : `group-${section.id}`}
+        flexDirection="column"
+        gap={1}
+        marginTop={1}
+        {...(isWide ? { width: `${Math.floor(100 / sectionList.length) - 2}%`, flexGrow: 1, flexShrink: 1 } : {})}
+      >
+        {/* A line of space under the group's name, before its first row. */}
+        <Box key={`heading-${section.id}`} marginBottom={1}>
+          <Text weight="bold" size="title">
+            {section.heading}
+          </Text>
+        </Box>
+        {listByPlace(section.id, section.rows)}
+      </Box>
+    ))
     return (
       <Box flexDirection="column" gap={1}>
         <Box key="filters" flexDirection="column" borderStyle="single" borderColor="promptBorder" paddingX={1}>
@@ -1066,37 +1105,17 @@ export const register: Register = (on, options) => {
             </Box>
           )}
         </Box>
-        {yourTurn.length > 0 && (
-          // What waits on the person: a group like the others, first, with its own heading.
-          <Box key="your-turn" flexDirection="column" gap={1} marginTop={1}>
-            <Box key="heading-your-turn" marginBottom={1}>
-              <Text weight="bold" size="title">
-                {t.yourTurn(yourTurn.length)}
-              </Text>
-            </Box>
-            {listByPlace('your-turn', yourTurn)}
-          </Box>
-        )}
         {groups.every(group => !isShown(group.id) || group.rows.length === 0) && (
           <Text dimColor>{query.trim() === '' ? t.empty : t.noMatch(query.trim())}</Text>
         )}
-        {groups.map(group => {
-          if (!isShown(group.id) || group.rows.length === 0) {
-            return null
-          }
-
-          return (
-            <Box key={`group-${group.id}`} flexDirection="column" gap={1} marginTop={1}>
-              {/* A line of space under the group's name, before its first row. */}
-              <Box key={`heading-${group.id}`} marginBottom={1}>
-                <Text weight="bold" size="title">
-                  {`${group.label} (${group.rows.length})`}
-                </Text>
-              </Box>
-              {listByPlace(group.id, group.rows)}
-            </Box>
-          )
-        })}
+        {isWide ? (
+          // A wide board: one column per group, side by side, what waits on you first.
+          <Box key="board-columns" flexDirection="row" alignItems="flex-start" gap={3}>
+            {sections}
+          </Box>
+        ) : (
+          sections
+        )}
       </Box>
     )
   })
@@ -1390,6 +1409,7 @@ async function readStoredFilters($: EngineInterface): Promise<Filters> {
 // order move with time even when no data changed.
 // When the data was last read; a board drawn long after reads it again.
 let lastRefreshAt = 0
+let lastPaneColumns = 0
 
 // The quick reread while a shown board has a spinner: a mod hears no other
 // conversation's turn end, so the board looks again soon. It never asks git.

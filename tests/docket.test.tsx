@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.11.13',
+    title: '🏷️ Docket 0.12.0',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1691,4 +1691,23 @@ test('a conversation in two files of one computer is drawn once, with its latest
   expect(await ui.find({ type: 'Markdown', key: 'open-far' })).toBeTruthy()
   expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
   await ui.unmount()
+})
+
+test('a wide board lays its groups side by side, one column each', FR, async ($, on) => {
+  mockEngine(on, { 'session:other': OTHER })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: 'en-cours' })
+
+  const narrow = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await narrow.find({ type: 'Box', key: 'heading-en-cours' })).toBeTruthy()
+  expect(await narrow.find({ type: 'Box', key: 'board-columns' })).toBeFalsy()
+  await narrow.unmount()
+
+  const wide = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, bodyColumns: 160 } })
+  const board = JSON.stringify(await wide.find({ type: 'Box', key: 'board-columns' }))
+  expect(board).toContain('group-en-cours')
+  expect(board).toContain('group-en-attente')
+  expect(board.indexOf('group-en-cours')).toBeLessThan(board.indexOf('group-en-attente'))
+  await wide.unmount()
 })
