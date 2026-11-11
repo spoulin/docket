@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.7'
+const VERSION = '0.12.8'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -117,6 +117,8 @@ const TEXTS = {
     showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 🌙 Snoozed (${count})`,
     local: '🏠 Local',
     machine: (name: string) => `💻 ${name}`,
+    machineFacts: (version: string, age: string) => `${version} · ${age}`,
+    otherVersion: (version: string) => `⚠️ ${version}`,
     snoozes: {
       '5m': '5 min',
       '10m': '10 min',
@@ -206,6 +208,8 @@ const TEXTS = {
     showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 🌙 En snooze (${count})`,
     local: '🏠 Local',
     machine: (name: string) => `💻 ${name}`,
+    machineFacts: (version: string, age: string) => `${version} · ${age}`,
+    otherVersion: (version: string) => `⚠️ ${version}`,
     snoozes: {
       '5m': '5 min',
       '10m': '10 min',
@@ -921,6 +925,17 @@ export const register: Register = (on, options) => {
     // A thin rule closes every card, the last one before a heading included.
     const listRows = (list: readonly Row[]) =>
       list.flatMap(row => [renderRow(row), separator(`separator-${row.key}`, cardColumns)])
+    // Another computer's version, marked when it differs from this one's, and how long
+    // ago it last wrote its file: a computer left behind or gone quiet shows at once.
+    const describeMachine = (list: readonly Row[], name: string): string | undefined => {
+      const facts = list.find(row => row.machine?.name === name)?.machine
+      if (facts?.version === undefined || facts.publishedAt === undefined) {
+        return undefined
+      }
+      const version = facts.version === VERSION ? facts.version : t.otherVersion(facts.version)
+
+      return t.machineFacts(version, formatAge(now - facts.publishedAt))
+    }
     // A list holding conversations of other computers is cut in two: this computer's
     // first, under "Local", then each other computer's under its name.
     const listByPlace = (prefix: string, list: readonly Row[]) => {
@@ -936,9 +951,16 @@ export const register: Register = (on, options) => {
       // The rule closing each section's last card sets it apart from the next one's name.
       return places.map(place => (
         <Box key={`place-${prefix}-${place ?? 'local'}`} flexDirection="column" gap={1}>
-          <Text weight="semibold" dimColor>
-            {place === undefined ? t.local : t.machine(place)}
-          </Text>
+          <Box key={`place-name-${prefix}-${place ?? 'local'}`} flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
+            <Text weight="semibold" dimColor>
+              {place === undefined ? t.local : t.machine(place)}
+            </Text>
+            {place !== undefined && describeMachine(list, place) !== undefined && (
+              <Text dimColor size="caption">
+                {describeMachine(list, place)}
+              </Text>
+            )}
+          </Box>
           {listRows(list.filter(row => row.machine?.name === place))}
         </Box>
       ))
@@ -1640,8 +1662,11 @@ async function refreshAll($: EngineInterface): Promise<void> {
 const MACHINE_KEY = 'machine'
 let machineId: string | undefined
 let machineName: string | undefined
-// The text this conversation last wrote, so an unchanged file is not written again.
+// The text this conversation last wrote, so an unchanged file is not written again,
+// but for a heartbeat now and then, which tells the other computers this one is there.
 let lastPublished: string | undefined
+let lastPublishedAt = Number.NEGATIVE_INFINITY
+const PUBLISH_HEARTBEAT_MS = 5 * 60_000
 // A parsed file per path, kept while the file's time does not change.
 const machineFiles = new Map<string, { mtimeMs: number; machine: RemoteMachine | null }>()
 
@@ -1749,11 +1774,17 @@ async function publishOwn($: EngineInterface): Promise<void> {
     snoozes: await readStoredSnoozes($),
   }
   const text = JSON.stringify(machine)
-  if (text === lastPublished) {
+  const now = await $.clock.now()
+  if (text === lastPublished && now - lastPublishedAt < PUBLISH_HEARTBEAT_MS) {
     return
   }
-  await $.fs.write(`${folder}/machines/${id}.json`, text)
+  // The version and the time ride along: the other computers show both by this one's name.
+  await $.fs.write(
+    `${folder}/machines/${id}.json`,
+    JSON.stringify({ ...machine, version: VERSION, publishedAt: now }),
+  )
   lastPublished = text
+  lastPublishedAt = now
 }
 
 async function readMachines($: EngineInterface): Promise<RemoteMachine[]> {
@@ -1829,6 +1860,10 @@ function parseMachine(text: string, ownId: string): RemoteMachine | null {
     git,
     // The other computer pruned them; past ones are moot here.
     snoozes: parseSnoozes(record.snoozes, Number.NEGATIVE_INFINITY),
+    ...(typeof record.version === 'string' && /^[\w.-]{1,20}$/.test(record.version)
+      ? { version: record.version }
+      : {}),
+    ...(typeof record.publishedAt === 'number' ? { publishedAt: record.publishedAt } : {}),
   }
 }
 
@@ -2112,7 +2147,7 @@ type Row = {
   remoteId?: string
   writtenAt?: number
   // Set on a conversation of another computer: its name and what its git said.
-  machine?: { name: string; git: Record<string, GitState> }
+  machine?: { name: string; git: Record<string, GitState>; version?: string; publishedAt?: number }
 }
 
 // Every row: this computer's, then each other computer's, newest first. A conversation
@@ -2134,7 +2169,15 @@ function buildAllRows(
       }
       const id = row.hostId ?? row.key
       const known = others.get(id)
-      const shared = { ...row, machine: { name: machine.name, git: machine.git } }
+      const shared = {
+        ...row,
+        machine: {
+          name: machine.name,
+          git: machine.git,
+          ...(machine.version === undefined ? {} : { version: machine.version }),
+          ...(machine.publishedAt === undefined ? {} : { publishedAt: machine.publishedAt }),
+        },
+      }
       if (known === undefined) {
         others.set(id, shared)
         continue

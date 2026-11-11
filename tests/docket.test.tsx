@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.7',
+    title: '🏷️ Docket 0.12.8',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1426,6 +1426,18 @@ test('a computer writes its conversations to the sync folder', SYNC, async ($, o
   expect(machine.sessions[0].remoteId).toBe('session_0123456789abcdef')
   // The note set a moment ago is already shared.
   expect(machine.entries[0]).toMatchObject({ hostId: 'local_here', status: 'en-cours', note: 'relire demain' })
+  // With the mod's version, and when it wrote.
+  expect(machine.version).toBe(PANE.props.title.replace('🏷️ Docket ', ''))
+  expect(machine.publishedAt).toBe(3_600_000)
+
+  // Unchanged, the file is written again only after a while, so the others see this one is there.
+  const writtenAt = () => JSON.parse(disk.get(written[0] ?? '') ?? '{}').publishedAt as number
+  await clock.advance(30_000)
+  const settled = writtenAt()
+  await clock.advance(60_000)
+  expect(writtenAt()).toBe(settled)
+  await clock.advance(5 * 60_000)
+  expect(writtenAt()).toBeGreaterThan(settled)
 })
 
 test('the board shows the conversations another computer shared', SYNC, async ($, on) => {
@@ -1649,6 +1661,8 @@ test('a group with conversations of several computers shows this one first, unde
         { sessionId: 'far', hostId: 'local_far', label: 'Loin', folder: 'api', status: OTHER.status, flags: {}, updatedAt: 1 },
       ],
       git: {},
+      version: '0.1.0',
+      publishedAt: 3_000_000,
     }),
   )
 
@@ -1656,6 +1670,8 @@ test('a group with conversations of several computers shows this one first, unde
   await $.command.run({ command: 'docket', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const group = JSON.stringify(await ui.find({ type: 'Box', key: `group-${OTHER.status}` } as never))
+  // The other computer's version, marked as not this one's, and how long ago it wrote.
+  expect(group).toContain('⚠️ 0.1.0 · il y a 10 min')
   // Positions in the tree, past the group's flattened text.
   const at = (text: string) => group.indexOf(text, group.indexOf('"children"'))
   expect(at('🏠 Local')).toBeGreaterThan(-1)

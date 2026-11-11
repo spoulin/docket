@@ -65,6 +65,9 @@ export type RemoteMachine = {
   git: Record<string, GitState>
   // Its snoozes and wake-ups, by conversation key.
   snoozes: Record<string, Snooze>
+  // The mod's version there, and when it last wrote its file.
+  version?: string
+  publishedAt?: number
 }
 
 // The board's filters, as a board keeps them.
