@@ -46,6 +46,26 @@ claude plugin install docket --marketplace spoulin/docket
 
 In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `spoulin/docket`, then Add plugin.
 
+### On another computer
+
+1. Install the mod as above.
+2. Give it the same options. On the first computer, save them in the synced folder you share (here iCloud Drive):
+
+   ```bash
+   jq '.pluginConfigs["docket@docket"].options' ~/.claude/settings.json > ~/Library/Mobile\ Documents/com~apple~CloudDocs/docket/options.json
+   ```
+
+   Then on the new one:
+
+   ```bash
+   claude plugin configure docket@docket --values-stdin < ~/Library/Mobile\ Documents/com~apple~CloudDocs/docket/options.json
+   ```
+
+3. `claude plugin configure docket@docket` lists the options: check that they are set.
+4. Open a new conversation and the board. With `syncFolder` set, each computer shows the other's conversations within a minute or so.
+
+To update the mod later: `claude plugin marketplace update docket`, then `claude plugin update docket@docket`; a new conversation loads it.
+
 ## Use
 
 - `/docket` opens the board.
@@ -68,18 +88,15 @@ A mod hears only its own conversation's events, so another conversation's change
 ## Options
 
 Set them when you install, or later in `/config` from a terminal session.
-In the desktop app, which has no `/config`, write them in `~/.claude/settings.json`:
+From a shell, `claude plugin configure docket@docket` shows them, and saves a JSON object of them given on its input:
 
-```json
-"pluginConfigs": {
-  "docket": {
-    "options": {
-      "language": "fr",
-      "filters": "[\"status\", \"perso\", \"period\", \"remote\"]"
-    }
-  }
-}
+```bash
+echo '{"language": "fr", "filters": "[\"status\", \"perso\", \"period\", \"remote\"]"}' |
+  claude plugin configure docket@docket --values-stdin
 ```
+
+They land in `~/.claude/settings.json`, under `pluginConfigs` and the plugin's full name, `docket@docket`.
+A copy loaded from a folder (`--plugin-dir`, `CLAUDE_CODE_PLUGIN_DIRS`) reads them under `docket` instead.
 
 A new conversation reads them.
 
