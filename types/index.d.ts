@@ -61,7 +61,12 @@ export type RemoteMachine = {
   sessions: DesktopSession[]
   entries: Entry[]
   git: Record<string, GitState>
+  // Its snoozes and wake-ups, by conversation key.
+  snoozes: Record<string, Snooze>
 }
+
+// A snooze: when the conversation wakes up (0 for a wake-up), and when it was set.
+export type Snooze = { until: number; setAt: number }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -77,6 +82,8 @@ declare module 'claude-code' {
       search: string
       // By flag id; a flag left out keeps every row.
       flagFilters: Record<string, FlagFilter>
+      // When each snoozed conversation wakes up, by its key.
+      snoozes: Record<string, number>
       // Bumped on each automatic refresh while the board is shown, so its ages redraw.
       tick: number
     }

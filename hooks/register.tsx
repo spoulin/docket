@@ -8,6 +8,7 @@ import type {
   GitState,
   Period,
   RemoteMachine,
+  Snooze,
   StatusFilter,
 } from '../types'
 
@@ -95,6 +96,17 @@ const TEXTS = {
     untitled: 'Untitled conversation',
     never: 'never',
     running: 'Claude is working',
+    snooze: '💤',
+    snoozedFor: (rest: string) => `💤 ${rest}`,
+    wake: 'Wake up',
+    snoozes: {
+      '5m': '5 min',
+      '10m': '10 min',
+      '15m': '15 min',
+      '30m': '30 min',
+      '1h': '1 hour',
+      '1d': '1 day',
+    } as Record<SnoozeId, string>,
     blocked: (text: string) => `⚠️ ${text}`,
     review: (text: string) => `👀 To review: ${text}`,
     prStates: { OPEN: 'open', MERGED: 'merged', CLOSED: 'closed', DRAFT: 'draft' } as Record<string, string>,
@@ -161,6 +173,17 @@ const TEXTS = {
     untitled: 'Conversation sans titre',
     never: 'jamais',
     running: 'Claude travaille',
+    snooze: '💤',
+    snoozedFor: (rest: string) => `💤 ${rest}`,
+    wake: 'Réveiller',
+    snoozes: {
+      '5m': '5 min',
+      '10m': '10 min',
+      '15m': '15 min',
+      '30m': '30 min',
+      '1h': '1 heure',
+      '1d': '1 jour',
+    } as Record<SnoozeId, string>,
     blocked: (text: string) => `⚠️ ${text}`,
     review: (text: string) => `👀 À revoir : ${text}`,
     prStates: { OPEN: 'ouverte', MERGED: 'mergée', CLOSED: 'fermée', DRAFT: 'brouillon' } as Record<string, string>,
@@ -281,6 +304,21 @@ const flagFilters = atom({ plugin: 'docket', key: 'flagFilters' } as const, {})
 const periodFilter = atom({ plugin: 'docket', key: 'period' } as const, 'tout' as Period)
 // The search is this board's own; it is not kept between conversations.
 const searchQuery = atom({ plugin: 'docket', key: 'search' } as const, '')
+
+// A snooze hides a conversation from the board for a while, whatever its status;
+// the search still finds it. By the conversation's key, when it wakes up.
+const snoozes = atom({ plugin: 'docket', key: 'snoozes' } as const, {} as Record<string, number>)
+type SnoozeId = '5m' | '10m' | '15m' | '30m' | '1h' | '1d'
+const SNOOZES: Record<SnoozeId, number> = {
+  '5m': 5 * 60_000,
+  '10m': 10 * 60_000,
+  '15m': 15 * 60_000,
+  '30m': 30 * 60_000,
+  '1h': 3_600_000,
+  '1d': 24 * 3_600_000,
+}
+const SNOOZE_NONE = ''
+const SNOOZE_WAKE = 'wake'
 
 const PERIODS: readonly Period[] = ['tout', '1h', '2h', '3h', '6h', 'today', '7d', '30d']
 const HOUR_MS = 3_600_000
@@ -496,8 +534,14 @@ export const register: Register = (on, options) => {
         ))
       )
     const hostId = await findHostId($)
+    const asleep = await read($, snoozes)
+    const bandNow = await $.clock.now()
     const waiting = (await readAllSessions($)).filter(
-      session => session.attention === 'blocked' && !session.isArchived && session.hostId !== hostId,
+      session =>
+        session.attention === 'blocked' &&
+        !session.isArchived &&
+        session.hostId !== hostId &&
+        !isSnoozed(asleep, session.hostId, bandNow),
     ).length
 
     // Left: this conversation (status, flags, note). Right: every conversation.
@@ -595,7 +639,13 @@ export const register: Register = (on, options) => {
     }
     const period = isVisible(PERIOD_FILTER_ID) ? await read($, periodFilter) : 'tout'
     const since = isSearching ? Number.NEGATIVE_INFINITY : findPeriodStart(period, now)
-    const found = rows.filter(row => matchesSearch(row, query))
+    const asleep = await read($, snoozes)
+    const wakesAt = (row: Row) => asleep[snoozeKey(row)] ?? 0
+    // A snoozed conversation is left out, the frame of what waits on you included,
+    // until it wakes up; a search still finds it.
+    const found = rows.filter(
+      row => matchesSearch(row, query) && (isSearching || !isSnoozed(asleep, snoozeKey(row), now)),
+    )
     const shown = found.filter(
       row =>
         row.lastActivityAt >= since &&
@@ -691,6 +741,21 @@ export const register: Register = (on, options) => {
                 <Text dimColor size="caption">
                   {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
                 </Text>
+                {Select !== undefined && (
+                  <Select
+                    key={`snooze-${row.key}`}
+                    options={[
+                      {
+                        value: SNOOZE_NONE,
+                        label: wakesAt(row) > now ? t.snoozedFor(formatLeft(wakesAt(row) - now)) : t.snooze,
+                      },
+                      ...(wakesAt(row) > now ? [{ value: SNOOZE_WAKE, label: t.wake }] : []),
+                      ...(Object.keys(SNOOZES) as SnoozeId[]).map(id => ({ value: id, label: t.snoozes[id] })),
+                    ]}
+                    value={SNOOZE_NONE}
+                    onSelect={(value: string) => snooze($, snoozeKey(row), value)}
+                  />
+                )}
               </Box>
             </Box>
             {row.machine !== undefined && (
@@ -1089,6 +1154,93 @@ async function loadFilters($: EngineInterface): Promise<void> {
   await applyFilters($, await readStoredFilters($))
 }
 
+const SNOOZES_KEY = 'snoozes'
+// The longest snooze: a snooze set or a wake-up made longer ago than this is moot.
+const SNOOZE_KEPT_MS = 24 * 3_600_000
+
+// This computer's snoozes and wake-ups, shared by every conversation's board, and
+// published to the other computers. A wake-up is kept a while as `until: 0`, so it
+// outweighs the snooze another computer set before it.
+async function readStoredSnoozes($: EngineInterface): Promise<Record<string, Snooze>> {
+  return parseSnoozes(await $.store.get(SNOOZES_KEY), await $.clock.now())
+}
+
+function parseSnoozes(value: unknown, now: number): Record<string, Snooze> {
+  const kept: Record<string, Snooze> = {}
+  if (typeof value !== 'object' || value === null) {
+    return kept
+  }
+  for (const [key, one] of Object.entries(value as Record<string, unknown>)) {
+    const snooze = one as Partial<Snooze> | null
+    if (
+      typeof snooze?.until === 'number' &&
+      typeof snooze.setAt === 'number' &&
+      Number.isFinite(snooze.until) &&
+      Number.isFinite(snooze.setAt) &&
+      snooze.setAt + SNOOZE_KEPT_MS > now
+    ) {
+      kept[key] = { until: snooze.until, setAt: snooze.setAt }
+    }
+  }
+
+  return kept
+}
+
+// When each conversation wakes up: of every computer's word on it, the last one said wins.
+function mergeSnoozes(lists: readonly Readonly<Record<string, Snooze>>[]): Record<string, number> {
+  const latest = new Map<string, Snooze>()
+  for (const list of lists) {
+    for (const [key, snooze] of Object.entries(list)) {
+      const known = latest.get(key)
+      if (known === undefined || snooze.setAt > known.setAt) {
+        latest.set(key, snooze)
+      }
+    }
+  }
+
+  return Object.fromEntries(
+    [...latest.entries()]
+      .filter(([, snooze]) => snooze.until > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, snooze]) => [key, snooze.until]),
+  )
+}
+
+async function loadSnoozes($: EngineInterface): Promise<void> {
+  const merged = mergeSnoozes([
+    await readStoredSnoozes($),
+    ...(await read($, remote)).map(machine => machine.snoozes),
+  ])
+  if (JSON.stringify(await read($, snoozes)) !== JSON.stringify(merged)) {
+    await update($, snoozes, () => merged)
+  }
+}
+
+// Snoozes a conversation for one of the SNOOZES, or wakes it up.
+async function snooze($: EngineInterface, key: string, choice: string): Promise<void> {
+  const length = SNOOZES[choice as SnoozeId]
+  if (choice !== SNOOZE_WAKE && length === undefined) {
+    return
+  }
+  const now = await $.clock.now()
+  const next = {
+    ...(await readStoredSnoozes($)),
+    [key]: { until: length === undefined ? 0 : now + length, setAt: now },
+  }
+  await $.store.set(SNOOZES_KEY, next)
+  await loadSnoozes($)
+  // The other computers hear of it at once, not on the next refresh.
+  await publishOwn($).catch(() => undefined)
+}
+
+function snoozeKey(row: Pick<Row, 'hostId' | 'key'>): string {
+  return row.hostId ?? row.key
+}
+
+function isSnoozed(asleep: Readonly<Record<string, number>>, key: string | undefined, now: number): boolean {
+  return key !== undefined && (asleep[key] ?? 0) > now
+}
+
 async function setSearch($: EngineInterface, value: string): Promise<void> {
   if ((await read($, searchQuery)) !== value) {
     await update($, searchQuery, () => value)
@@ -1257,6 +1409,7 @@ async function refreshAll($: EngineInterface): Promise<void> {
   }
   await loadGit($)
   await syncMachines($).catch(() => undefined)
+  await loadSnoozes($)
 }
 
 // Sharing between computers: each one writes a single file of its own in the sync
@@ -1368,6 +1521,7 @@ async function publishOwn($: EngineInterface): Promise<void> {
     sessions: sessions.filter(session => hostIds.has(session.hostId)),
     entries,
     git,
+    snoozes: await readStoredSnoozes($),
   }
   const text = JSON.stringify(machine)
   if (text === lastPublished) {
@@ -1448,6 +1602,8 @@ function parseMachine(text: string, ownId: string): RemoteMachine | null {
       return entry === null ? [] : [entry]
     }),
     git,
+    // The other computer pruned them; past ones are moot here.
+    snoozes: parseSnoozes(record.snoozes, Number.NEGATIVE_INFINITY),
   }
 }
 
@@ -2503,6 +2659,20 @@ function formatSummary(row: Row): string {
 
 function formatPrState(state: string): string {
   return config.texts.prStates[state.toUpperCase()] ?? state.toLowerCase()
+}
+
+// What is left of a snooze, rounded up: "25 min", "3 h", "1 d".
+function formatLeft(ms: number): string {
+  const minutes = Math.ceil(ms / 60_000)
+  if (minutes < 60) {
+    return `${minutes} min`
+  }
+  const hours = Math.ceil(minutes / 60)
+  if (hours < 24) {
+    return `${hours} h`
+  }
+
+  return `${Math.ceil(hours / 24)} ${config.texts === TEXTS.fr ? 'j' : 'd'}`
 }
 
 function formatAge(ms: number): string {

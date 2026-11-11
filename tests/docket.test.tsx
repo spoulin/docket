@@ -1494,3 +1494,105 @@ test('without a sync folder nothing is written nor read', FR, async ($, on) => {
   await $.prompt.submit({ text: 'Préparer la démo' })
   expect([...disk.keys()]).toEqual(['/Users/me/Cloud/docket/machines/far.json'])
 })
+
+test('a snooze hides a conversation for a while, and the search still finds it', FR, async ($, on) => {
+  const store = mockEngine(
+    on,
+    { filters: { status: 'tous', flags: {} } },
+    {
+      'local_a.json': desktopRecord('a', 'Première', false, {
+        postTurnSummary: { status_category: 'blocked', needs_action: 'Choisis une option' },
+      }),
+      'local_b.json': desktopRecord('b', 'Deuxième'),
+    },
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const picker = await ui.find({ type: 'Select', key: 'snooze-a' })
+  expect(picker?.props.options.map(option => option.value)).toEqual([
+    '',
+    '5m',
+    '10m',
+    '15m',
+    '30m',
+    '1h',
+    '1d',
+  ])
+  expect(await ui.find({ type: 'Box', key: 'your-turn' } as never)).toBeTruthy()
+
+  // Snoozed, it leaves the frame of what waits on you and the band's count.
+  await ui.select({ key: 'snooze-a', value: '10m' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeFalsy()
+  expect(await ui.find({ type: 'Box', key: 'your-turn' } as never)).toBeFalsy()
+  expect(Object.keys(store.get('snoozes') as object)).toEqual(['local_a'])
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await band.find({ type: 'Button', key: 'your-turn' })).toBeFalsy()
+  await band.unmount()
+
+  // The search finds it, with what is left of its snooze.
+  await ui.input({ key: 'search', text: 'premiere', kind: 'change' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
+  expect((await ui.find({ type: 'Select', key: 'snooze-a' }))?.props.options[0]?.label).toBe('💤 10 min')
+  await ui.input({ key: 'search', text: '', kind: 'change' })
+
+  // It wakes up on its own once the time is up.
+  await clock.advance(11 * 60_000)
+  expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
+
+  // Or sooner, from the search.
+  await ui.select({ key: 'snooze-a', value: '1d' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeFalsy()
+  await ui.input({ key: 'search', text: 'premiere', kind: 'change' })
+  expect((await ui.find({ type: 'Select', key: 'snooze-a' }))?.props.options[0]?.label).toBe('💤 1 j')
+  await ui.select({ key: 'snooze-a', value: 'wake' })
+  await ui.input({ key: 'search', text: '', kind: 'change' })
+  expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
+  expect(store.get('snoozes')).toMatchObject({ local_a: { until: 0 } })
+  await ui.unmount()
+})
+
+test('the computers share their snoozes, and the last word on one wins', SYNC, async ($, on) => {
+  const store = mockEngine(on, { filters: { status: 'tous', flags: {} } })
+  disk.set(
+    `${MACHINES}/far-machine.json`,
+    JSON.stringify({
+      machineId: 'far-machine',
+      name: 'Bureau',
+      sessions: [
+        {
+          cliSessionId: 'far',
+          hostId: 'local_far',
+          title: 'Loin',
+          folder: 'api',
+          lastActivityAt: 3_590_000,
+          isArchived: false,
+          priorCliSessionIds: [],
+        },
+      ],
+      entries: [
+        { sessionId: 'far', hostId: 'local_far', label: 'Loin', folder: 'api', status: 'en-attente', flags: {}, updatedAt: 1 },
+      ],
+      git: {},
+      // Snoozed over there a minute ago, for half an hour.
+      snoozes: { local_far: { until: 3_600_000 + 29 * 60_000, setAt: 3_540_000 } },
+    }),
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^Loin$/ })).toBeFalsy()
+
+  // Woken up here: this computer's word is the last, and it is published.
+  await ui.input({ key: 'search', text: 'loin', kind: 'change' })
+  expect((await ui.find({ type: 'Select', key: 'snooze-far' }))?.props.options[0]?.label).toBe('💤 29 min')
+  await ui.select({ key: 'snooze-far', value: 'wake' })
+  await ui.input({ key: 'search', text: '', kind: 'change' })
+  expect(await ui.find({ type: 'Text', text: /^Loin$/ })).toBeTruthy()
+  expect(store.get('snoozes')).toMatchObject({ local_far: { until: 0 } })
+  const own = [...disk.keys()].find(path => path.startsWith(`${MACHINES}/`) && !path.endsWith('far-machine.json'))
+  expect(JSON.parse(disk.get(own ?? '') ?? '{}').snoozes).toMatchObject({ local_far: { until: 0 } })
+  await ui.unmount()
+})
