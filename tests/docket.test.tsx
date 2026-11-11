@@ -1323,6 +1323,55 @@ test('a turn whose start the app wrote late still shows a spinner, until its sum
   await ui.unmount()
 })
 
+test('the transcript says a turn runs when the app record does not', FR, async ($, on) => {
+  // Driven from another device, without turn summaries: the record looks ended.
+  const record = {
+    latestUserFrameAt: 3_580_000,
+    lastTurnEdgeAt: 3_582_000,
+    lastActivityAt: 3_582_000,
+    completedTurns: 17,
+    lastAssistantUuid: 'answer-17',
+  }
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, {
+    'local_far.json': desktopRecord('far', 'Pilotée de loin', false, record),
+  })
+  const transcript = '/Users/me/.claude/projects/-Users-me-src-my-app/far.jsonl'
+  const line = (entry: Record<string, unknown>) => JSON.stringify(entry)
+  let text = [
+    line({ type: 'user', message: { content: 'Corrige le test' } }),
+    line({ type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'tool_use' }] } }),
+    line({ type: 'bridge-session' }),
+  ].join('\n')
+  let writtenAt = 3_595_000
+  on('fs.stat', (_, e) => {
+    if (e.path !== transcript) {
+      throw new Error('missing')
+    }
+
+    return { value: { kind: 'file' as const, size: text.length, mtimeMs: writtenAt, isLink: false } }
+  })
+  on('process.run', (_, e) => ({
+    value: { exitCode: e.argv[0] === 'tail' ? 0 : 1, stdout: e.argv[0] === 'tail' ? text : '', stderr: '' },
+  }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await findSpinners(ui)).toHaveLength(1)
+
+  // The turn ends: an answer that ends it, then the stop hooks' summary.
+  text = [
+    text,
+    line({ type: 'assistant', message: { stop_reason: 'end_turn', content: [{ type: 'text' }] } }),
+    line({ type: 'system', subtype: 'stop_hook_summary' }),
+  ].join('\n')
+  writtenAt = 3_599_000
+  await clock.advance(5_000)
+  await clock.advance(1)
+  expect(await findSpinners(ui)).toHaveLength(0)
+  await ui.unmount()
+})
+
 const SYNC = {
   options: { ...FR.options, syncFolder: '~/Cloud/docket', machineName: 'Portable' },
 }

@@ -45,6 +45,8 @@ export type DesktopSession = {
   // The conversation's Remote Control id (session_… or cse_…): claude.ai/code/<id> opens
   // it from any computer.
   remoteId?: string
+  // While a turn runs: when Claude Code last wrote the conversation's transcript.
+  writtenAt?: number
 }
 
 // What git says of one branch: files changed on it, commits no remote has, and

@@ -22,6 +22,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
   Untracked files and merge commits are left out, and a squash-merged branch without a pull request reads as not merged.
 - A small spinner left of the age marks a conversation where Claude is working (`⋯` in the terminal).
   It stops at most 5 seconds after the turn ends, and after 10 minutes without activity (an app that quit during a turn).
+  It reads the end of each recently active conversation's transcript, under `~/.claude/projects`, and falls back on the app's records when there is none.
 - With a sync folder, the board also shows the conversations of your other computers, named after them (`💻 Office`): see [Sharing between computers](#sharing-between-computers).
 
 > [!WARNING]

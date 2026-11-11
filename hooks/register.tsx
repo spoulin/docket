@@ -1491,6 +1491,7 @@ function parseSharedSession(value: unknown): DesktopSession | null {
     ...(branches.length > 0 ? { branches } : {}),
     ...(typeof one.turnStartedAt === 'number' ? { turnStartedAt: one.turnStartedAt } : {}),
     ...parseRemoteId([one.remoteId]),
+    ...(typeof one.writtenAt === 'number' ? { writtenAt: one.writtenAt } : {}),
   }
 }
 
@@ -1725,6 +1726,7 @@ type Row = {
   pr?: { number: number; state: string }
   turnStartedAt?: number
   remoteId?: string
+  writtenAt?: number
   // Set on a conversation of another computer: its name and what its git said.
   machine?: { name: string; git: Record<string, GitState> }
 }
@@ -1748,7 +1750,114 @@ function buildAllRows(
 }
 
 // A parsed record per file, kept while the file's time does not change.
-const desktopFiles = new Map<string, { mtimeMs: number; session: DesktopSession | null }>()
+const desktopFiles = new Map<
+  string,
+  { mtimeMs: number; session: DesktopSession | null; cwd: string | undefined }
+>()
+
+function parseCwd(text: string): string | undefined {
+  try {
+    const cwd = (JSON.parse(text) as { cwd?: unknown }).cwd
+
+    return typeof cwd === 'string' && cwd !== '' ? cwd : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// The transcript tells best whether a turn runs: Claude Code ends each turn with an
+// answer that ends it, then the stop hooks' summary, while a running turn ends with a
+// tool call, its result or the person's message. The app's record misses turns some
+// conversations run, such as one driven from another device without turn summaries.
+// Only a conversation active lately is looked at, and a transcript is read again only
+// once it changed.
+const TRANSCRIPT_WINDOW_MS = 12 * HOUR_MS
+const TRANSCRIPT_TAIL_BYTES = 200_000
+const transcripts = new Map<string, { mtimeMs: number; isRunning: boolean | undefined }>()
+
+async function applyTranscript(
+  $: EngineInterface,
+  session: DesktopSession,
+  cwd: string | undefined,
+): Promise<DesktopSession> {
+  if (session.isArchived || cwd === undefined) {
+    return session
+  }
+  const home = await $.env.get('HOME')
+  if (home === undefined || (await $.clock.now()) - session.lastActivityAt > TRANSCRIPT_WINDOW_MS) {
+    return session
+  }
+  const path = `${home}/.claude/projects/${cwd.replace(/[^A-Za-z0-9]/g, '-')}/${session.cliSessionId}.jsonl`
+  const stat = await $.fs.stat(path).catch(() => undefined)
+  if (stat === undefined) {
+    return session
+  }
+  let known = transcripts.get(path)
+  if (known === undefined || known.mtimeMs !== stat.mtimeMs) {
+    known = { mtimeMs: stat.mtimeMs, isRunning: await readTranscriptTurn($, path, stat.size) }
+    transcripts.set(path, known)
+  }
+  if (known.isRunning === undefined) {
+    return session
+  }
+  const { turnStartedAt: _dropped, writtenAt: _old, ...ended } = session
+
+  return known.isRunning
+    ? { ...ended, turnStartedAt: session.turnStartedAt ?? session.lastActivityAt, writtenAt: stat.mtimeMs }
+    : ended
+}
+
+// Whether the transcript's last turn still runs; undefined when it cannot tell.
+async function readTranscriptTurn(
+  $: EngineInterface,
+  path: string,
+  size: number,
+): Promise<boolean | undefined> {
+  const isWindows = (await findPlatform($)) === 'windows'
+  const text = isWindows
+    ? size <= TRANSCRIPT_TAIL_BYTES
+      ? await $.fs.read(path).catch(() => null)
+      : null
+    : await $.process
+        .run(['tail', '-c', String(TRANSCRIPT_TAIL_BYTES), path], { timeoutMs: 5_000 })
+        .then(ran => (ran.exitCode === 0 ? ran.stdout : null))
+        .catch(() => null)
+
+  return text === null ? undefined : findTurnState(text)
+}
+
+function findTurnState(text: string): boolean | undefined {
+  const lines = text.split('\n')
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry: Record<string, unknown>
+    try {
+      entry = JSON.parse(lines[index] ?? '') as Record<string, unknown>
+    } catch {
+      continue
+    }
+    const message = (entry.message ?? {}) as Record<string, unknown>
+    if (entry.type === 'system') {
+      if (entry.subtype === 'stop_hook_summary' || entry.subtype === 'turn_duration') {
+        return false
+      }
+      continue
+    }
+    if (entry.type === 'assistant') {
+      const reason = message.stop_reason
+      return !(reason === 'end_turn' || reason === 'stop_sequence' || reason === 'max_tokens' || reason === 'refusal')
+    }
+    if (entry.type === 'user') {
+      if (entry.isMeta === true) {
+        continue
+      }
+      const content = message.content
+      const said = typeof content === 'string' ? content : JSON.stringify(content ?? '')
+      return !said.includes('[Request interrupted')
+    }
+  }
+
+  return undefined
+}
 
 // The desktop app keeps one JSON record per conversation, with the title the
 // sidebar shows. The format is the app's own: anything unexpected is skipped.
@@ -1764,11 +1873,15 @@ async function scanDesktop($: EngineInterface): Promise<DesktopSession[]> {
       let known = desktopFiles.get(path)
       if (known === undefined || known.mtimeMs !== file.mtimeMs) {
         const text = await $.fs.read(path).catch(() => null)
-        known = { mtimeMs: file.mtimeMs, session: text === null ? null : parseDesktopSession(text) }
+        known = {
+          mtimeMs: file.mtimeMs,
+          session: text === null ? null : parseDesktopSession(text),
+          cwd: text === null ? undefined : parseCwd(text),
+        }
         desktopFiles.set(path, known)
       }
       if (known.session !== null) {
-        sessions.push(known.session)
+        sessions.push(await applyTranscript($, known.session, known.cwd))
       }
     }
   }
@@ -1888,8 +2001,11 @@ function parseRunningTurn(record: Record<string, unknown>): Pick<DesktopSession,
 // An app that quits during a turn never writes its end: a turn quiet this long is over.
 const RUNNING_STALE_MS = 10 * 60_000
 
-function isRunning(row: Pick<Row, 'turnStartedAt' | 'lastActivityAt'>, now: number): boolean {
-  return row.turnStartedAt !== undefined && now - row.lastActivityAt < RUNNING_STALE_MS
+function isRunning(row: Pick<Row, 'turnStartedAt' | 'lastActivityAt' | 'writtenAt'>, now: number): boolean {
+  return (
+    row.turnStartedAt !== undefined &&
+    now - Math.max(row.lastActivityAt, row.writtenAt ?? 0) < RUNNING_STALE_MS
+  )
 }
 
 function parseTurnSummary(value: unknown): Pick<DesktopSession, 'summary' | 'attention'> {
@@ -1973,6 +2089,7 @@ function buildRows(sessions: readonly DesktopSession[], entries: readonly Entry[
       branches: session.branches,
       turnStartedAt: session.turnStartedAt,
       ...(session.remoteId === undefined ? {} : { remoteId: session.remoteId }),
+      ...(session.writtenAt === undefined ? {} : { writtenAt: session.writtenAt }),
     })
   }
   const hostIds = new Set(sessions.map(session => session.hostId))
