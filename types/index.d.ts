@@ -42,6 +42,9 @@ export type DesktopSession = {
   branches?: { repo: string; branch: string }[]
   // When the person's last message came, while Claude has not ended the turn it started.
   turnStartedAt?: number
+  // The conversation's Remote Control id (session_… or cse_…): claude.ai/code/<id> opens
+  // it from any computer.
+  remoteId?: string
 }
 
 // What git says of one branch: files changed on it, commits no remote has, and

@@ -264,7 +264,7 @@ const all = atom({ plugin: 'docket', key: 'all' } as const, [], {
   shape: 'entry-2',
 })
 const desktop = atom({ plugin: 'docket', key: 'desktop' } as const, [], {
-  shape: 'desktop-3',
+  shape: 'desktop-4',
 })
 // What git says of each branch a conversation committed on, by repository and branch.
 const gitStates = atom({ plugin: 'docket', key: 'git' } as const, {} as Record<string, GitState>)
@@ -655,6 +655,14 @@ export const register: Register = (on, options) => {
                     text={`**[${escapeMarkdown(row.title)}](${conversationHref(row.hostId)})**`}
                     pressableLinks={[conversationHref(row.hostId)]}
                     onLinkPress={() => openConversation($, row.hostId)}
+                  />
+                ) : row.machine !== undefined && row.remoteId !== undefined ? (
+                  // Another computer's conversation opens through Remote Control.
+                  <Markdown
+                    key={`open-${row.key}`}
+                    text={`**[${escapeMarkdown(row.title)}](${remoteHref(row.remoteId)})**`}
+                    pressableLinks={[remoteHref(row.remoteId)]}
+                    onLinkPress={() => openRemote($, row.remoteId)}
                   />
                 ) : (
                   <Text weight="semibold" wrap="truncate-end">
@@ -1474,6 +1482,7 @@ function parseSharedSession(value: unknown): DesktopSession | null {
       : {}),
     ...(branches.length > 0 ? { branches } : {}),
     ...(typeof one.turnStartedAt === 'number' ? { turnStartedAt: one.turnStartedAt } : {}),
+    ...parseRemoteId([one.remoteId]),
   }
 }
 
@@ -1707,6 +1716,7 @@ type Row = {
   attention?: 'blocked' | 'review_ready'
   pr?: { number: number; state: string }
   turnStartedAt?: number
+  remoteId?: string
   // Set on a conversation of another computer: its name and what its git said.
   machine?: { name: string; git: Record<string, GitState> }
 }
@@ -1838,6 +1848,7 @@ function parseDesktopSession(text: string): DesktopSession | null {
     ...parsePullRequest(record.prs),
     ...parseWrittenBranches(record.writtenBranches),
     ...parseRunningTurn(record.latestUserFrameAt, record.lastTurnEdgeAt),
+    ...parseRemoteId(record.bridgeSessionIds),
   }
 }
 
@@ -1936,6 +1947,7 @@ function buildRows(sessions: readonly DesktopSession[], entries: readonly Entry[
       pr: session.pr,
       branches: session.branches,
       turnStartedAt: session.turnStartedAt,
+      ...(session.remoteId === undefined ? {} : { remoteId: session.remoteId }),
     })
   }
   const hostIds = new Set(sessions.map(session => session.hostId))
@@ -1961,6 +1973,27 @@ function buildRows(sessions: readonly DesktopSession[], entries: readonly Entry[
 
 // A title drawn as a link sits flush with the lines under it, where a Button gets the
 // desktop's inner padding. The link is answered by the mod, never opened as written.
+// The last Remote Control id the app noted for the conversation, if it reads as one.
+function parseRemoteId(value: unknown): Pick<DesktopSession, 'remoteId'> {
+  const ids = Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === 'string' && /^(session|cse)_[A-Za-z0-9]{8,64}$/.test(id))
+    : []
+  const last = ids.at(-1)
+
+  return last === undefined ? {} : { remoteId: last }
+}
+
+function remoteHref(remoteId: string): string {
+  return `https://claude.ai/code/${remoteId}`
+}
+
+// The app answers claude.ai/code links itself and opens the conversation there.
+async function openRemote($: EngineInterface, remoteId: string | undefined): Promise<void> {
+  if (remoteId !== undefined && !(await openUrl($, remoteHref(remoteId)))) {
+    $.ui.toast(config.texts.openFailed)
+  }
+}
+
 function conversationHref(hostId: string | undefined): string {
   return `https://conversation.invalid/${hostId ?? ''}`
 }

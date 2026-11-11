@@ -1288,7 +1288,9 @@ const SYNC = {
 const MACHINES = '/Users/me/Cloud/docket/machines'
 
 test('a computer writes its conversations to the sync folder', SYNC, async ($, on) => {
-  mockEngine(on, {}, { 'local_here.json': desktopRecord('here', 'Ici') })
+  mockEngine(on, {}, {
+    'local_here.json': desktopRecord('here', 'Ici', false, { bridgeSessionIds: ['nope', 'session_0123456789abcdef'] }),
+  })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.prompt.submit({ text: 'Préparer la démo' })
@@ -1299,6 +1301,8 @@ test('a computer writes its conversations to the sync folder', SYNC, async ($, o
   const machine = JSON.parse(disk.get(written[0] ?? '') ?? '{}')
   expect(machine.name).toBe('Portable')
   expect(machine.sessions.map((session: { title: string }) => session.title)).toEqual(['Ici'])
+  // Its Remote Control id, so the other computers can open it.
+  expect(machine.sessions[0].remoteId).toBe('session_0123456789abcdef')
   // The note set a moment ago is already shared.
   expect(machine.entries[0]).toMatchObject({ hostId: 'local_here', status: 'en-cours', note: 'relire demain' })
 })
@@ -1321,6 +1325,16 @@ test('the board shows the conversations another computer shared', SYNC, async ($
           priorCliSessionIds: [],
           turnStartedAt: 3_580_000,
           branches: [{ repo: '/repo', branch: 'feature' }],
+          remoteId: 'cse_0123456789abcdef',
+        },
+        {
+          cliSessionId: 'closed',
+          hostId: 'local_closed',
+          title: 'Fermée',
+          folder: 'api',
+          lastActivityAt: 3_500_000,
+          isArchived: false,
+          priorCliSessionIds: [],
         },
       ],
       entries: [
@@ -1330,6 +1344,12 @@ test('the board shows the conversations another computer shared', SYNC, async ($
     }),
   )
   disk.set(`${MACHINES}/broken.json`, 'not json')
+  const runs: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    runs.push(e.argv)
+
+    return { value: { exitCode: 0, stdout: '', stderr: '' } }
+  })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'docket', args: '' })
@@ -1339,10 +1359,17 @@ test('the board shows the conversations another computer shared', SYNC, async ($
   expect(await ui.find({ type: 'Text', text: /^💻 Bureau · api$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
   expect(await ui.find({ type: 'Svg', alt: 'Claude travaille' } as never)).toBeTruthy()
-  // This computer cannot open it nor remove it: the title is plain text.
-  expect(await ui.find({ type: 'Text', text: /^Loin$/ })).toBeTruthy()
-  expect(await ui.find({ type: 'Markdown', key: 'open-far' })).toBeFalsy()
+  // It opens through Remote Control; it cannot be removed from here.
+  expect((await ui.find({ type: 'Markdown', key: 'open-far' }))?.props.text).toBe(
+    '**[Loin](https://claude.ai/code/cse_0123456789abcdef)**',
+  )
   expect(await ui.find({ type: 'Button', key: 'remove-far' })).toBeFalsy()
+  await ui.press({ key: 'open-far', link: { href: 'https://claude.ai/code/cse_0123456789abcdef' } })
+  expect(runs).toEqual([['/usr/bin/open', 'https://claude.ai/code/cse_0123456789abcdef']])
+  // Without a Remote Control id, the title is plain text.
+  await showOnly(ui, ['aucun'])
+  expect(await ui.find({ type: 'Text', text: /^Fermée$/ })).toBeTruthy()
+  expect(await ui.find({ type: 'Markdown', key: 'open-closed' })).toBeFalsy()
   await ui.unmount()
 })
 
