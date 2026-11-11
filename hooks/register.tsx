@@ -15,7 +15,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.1'
+const VERSION = '0.12.2'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -55,6 +55,7 @@ const TEXTS = {
     noteCleared: 'Note cleared.',
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `⚠️ Your turn (${count})`,
+    runningGroup: (count: number) => `⚙️ Running (${count})`,
     saveFailed: 'The conversation status could not be saved.',
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
@@ -136,6 +137,7 @@ const TEXTS = {
     noteCleared: 'Note effacée.',
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `⚠️ À toi (${count})`,
+    runningGroup: (count: number) => `⚙️ En marche (${count})`,
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
@@ -681,7 +683,16 @@ export const register: Register = (on, options) => {
     // What waits on the person sits between the filters and the groups, filters aside, and is not repeated below.
     const isYourTurn = (row: Row) => row.attention === 'blocked' && row.key !== hereId
     const yourTurn = found.filter(isYourTurn)
-    const listed = shown.filter(row => !isYourTurn(row))
+    const isChecked = (id: string) => selected.includes(id)
+    const isShown = (id: string) => isSearching || isChecked(id)
+    // A wide board gives the conversations where Claude works a column of their own,
+    // after what waits on you, as the status filter allows; they leave their group.
+    const groupOf = (row: Row) => (hasStatus(row) ? (row.entry?.status ?? NO_STATUS) : NO_STATUS)
+    const running =
+      columns >= BOARD_COLUMNS_MIN
+        ? shown.filter(row => !isYourTurn(row) && isRunning(row, now) && isShown(groupOf(row)))
+        : []
+    const listed = shown.filter(row => !isYourTurn(row) && !running.includes(row))
     const groups: { id: string; label: string; rows: Row[] }[] = [
       ...statuses().map(status => ({
         id: status.id,
@@ -690,8 +701,6 @@ export const register: Register = (on, options) => {
       })),
       { id: NO_STATUS, label: t.noStatus, rows: listed.filter(row => !hasStatus(row)) },
     ]
-    const isChecked = (id: string) => selected.includes(id)
-    const isShown = (id: string) => isSearching || isChecked(id)
     // The picker shows a summary of the checked groups; each other choice checks or
     // unchecks one group, and the last checked group stays checked.
     const shownGroups = groups.filter(group => isChecked(group.id))
@@ -1002,6 +1011,7 @@ export const register: Register = (on, options) => {
       ...(yourTurn.length > 0
         ? [{ id: 'your-turn', heading: t.yourTurn(yourTurn.length), rows: yourTurn }]
         : []),
+      ...(running.length > 0 ? [{ id: 'running', heading: t.runningGroup(running.length), rows: running }] : []),
       ...groups
         .filter(group => isShown(group.id) && group.rows.length > 0)
         .map(group => ({ id: group.id, heading: `${group.label} (${group.rows.length})`, rows: group.rows })),
@@ -1110,7 +1120,7 @@ export const register: Register = (on, options) => {
             </Box>
           )}
         </Box>
-        {groups.every(group => !isShown(group.id) || group.rows.length === 0) && (
+        {sectionList.length === 0 && (
           <Text dimColor>{query.trim() === '' ? t.empty : t.noMatch(query.trim())}</Text>
         )}
         {isWide ? (

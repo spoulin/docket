@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.1',
+    title: '🏷️ Docket 0.12.2',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1712,5 +1712,34 @@ test('a wide board lays its groups side by side, one column each', FR, async ($,
   // Its filters sit on one line rather than in two columns.
   expect(await wide.find({ type: 'Box', key: 'filter-line' })).toBeTruthy()
   expect(await wide.find({ type: 'Box', key: 'filter-column-1' })).toBeFalsy()
+  await wide.unmount()
+})
+
+test('a wide board gives the running conversations a column of their own', FR, async ($, on) => {
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, {
+    'local_busy.json': desktopRecord('busy', 'Occupée', false, RUNNING),
+    'local_idle.json': desktopRecord('idle', 'Au repos', false, {
+      latestUserFrameAt: 3_500_000,
+      lastTurnEdgeAt: 3_510_000,
+      lastActivityAt: 3_590_000,
+    }),
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+
+  // Narrow, the running conversation stays in its group.
+  const narrow = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await narrow.find({ type: 'Box', key: 'heading-running' })).toBeFalsy()
+  await narrow.unmount()
+
+  const wide = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, bodyColumns: 160 } })
+  const column = JSON.stringify(await wide.find({ type: 'Box', key: 'group-running' }))
+  expect(column).toContain('⚙️ En marche (1)')
+  expect(column).toContain('Occupée')
+  expect(column).not.toContain('Au repos')
+  const rest = JSON.stringify(await wide.find({ type: 'Box', key: 'group-aucun' }))
+  expect(rest).toContain('Au repos')
+  expect(rest).not.toContain('Occupée')
   await wide.unmount()
 })
