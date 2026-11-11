@@ -16,7 +16,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - The band counts the other conversations that wait on you (⚠️ 2); 🏷️ opens the board.
 - A first group, `⚠️ Your turn`, between the filters and the other groups, lists what waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
 - A short note per conversation says why it waits or what comes next.
-- 💤, on each row, snoozes a conversation for 5, 10, 15 or 30 minutes, an hour or a day: whatever its status, it leaves the board, the Your turn group and the band's count, and comes back once the time is up.
+- 💤, at the bottom right of each row, snoozes a conversation for 5, 10, 15 or 30 minutes, an hour or a day: whatever its status, it leaves the board, the Your turn group and the band's count, and comes back once the time is up.
   The search still finds it, with the time left (`💤 25 min`); its 💤 then offers to wake it up now.
   `☐ 💤 Snoozed (2)`, left of ↻, shows them again on the board until pressed again.
   Every conversation's board shares the snoozes, and so do your other computers with a sync folder: the last snooze or wake-up made on a conversation, on any computer, wins.

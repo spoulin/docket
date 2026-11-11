@@ -755,21 +755,6 @@ export const register: Register = (on, options) => {
                 <Text dimColor size="caption">
                   {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
                 </Text>
-                {Select !== undefined && (
-                  <Select
-                    key={`snooze-${row.key}`}
-                    options={[
-                      {
-                        value: SNOOZE_NONE,
-                        label: wakesAt(row) > now ? t.snoozedFor(formatLeft(wakesAt(row) - now)) : t.snooze,
-                      },
-                      ...(wakesAt(row) > now ? [{ value: SNOOZE_WAKE, label: t.wake }] : []),
-                      ...(Object.keys(SNOOZES) as SnoozeId[]).map(id => ({ value: id, label: t.snoozes[id] })),
-                    ]}
-                    value={SNOOZE_NONE}
-                    onSelect={(value: string) => snooze($, snoozeKey(row), value)}
-                  />
-                )}
               </Box>
             </Box>
             <Box flexDirection="row" alignItems="center" gap={1}>
@@ -831,6 +816,24 @@ export const register: Register = (on, options) => {
           >
             {formatSummary(row)}
           </Text>
+        )}
+        {Select !== undefined && (
+          // At the card's bottom right, so the title keeps the width.
+          <Box key={`snooze-row-${row.key}`} flexDirection="row" justifyContent="flex-end">
+            <Select
+              key={`snooze-${row.key}`}
+              options={[
+                {
+                  value: SNOOZE_NONE,
+                  label: wakesAt(row) > now ? t.snoozedFor(formatLeft(wakesAt(row) - now)) : t.snooze,
+                },
+                ...(wakesAt(row) > now ? [{ value: SNOOZE_WAKE, label: t.wake }] : []),
+                ...(Object.keys(SNOOZES) as SnoozeId[]).map(id => ({ value: id, label: t.snoozes[id] })),
+              ]}
+              value={SNOOZE_NONE}
+              onSelect={(value: string) => snooze($, snoozeKey(row), value)}
+            />
+          </Box>
         )}
       </Box>
     )
