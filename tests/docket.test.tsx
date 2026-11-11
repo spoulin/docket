@@ -1365,7 +1365,8 @@ test('the board shows the conversations another computer shared', SYNC, async ($
   )
   expect(await ui.find({ type: 'Button', key: 'remove-far' })).toBeFalsy()
   await ui.press({ key: 'open-far', link: { href: 'https://claude.ai/code/cse_0123456789abcdef' } })
-  expect(runs).toEqual([['/usr/bin/open', 'https://claude.ai/code/cse_0123456789abcdef']])
+  // In the app, through its own scheme.
+  expect(runs).toEqual([['/usr/bin/open', 'claude://claude.ai/code/cse_0123456789abcdef']])
   // Without a Remote Control id, the title is plain text.
   await showOnly(ui, ['aucun'])
   expect(await ui.find({ type: 'Text', text: /^Fermée$/ })).toBeTruthy()

@@ -1971,8 +1971,6 @@ function buildRows(sessions: readonly DesktopSession[], entries: readonly Entry[
   return rows.sort((a, b) => b.lastActivityAt - a.lastActivityAt)
 }
 
-// A title drawn as a link sits flush with the lines under it, where a Button gets the
-// desktop's inner padding. The link is answered by the mod, never opened as written.
 // The last Remote Control id the app noted for the conversation, if it reads as one.
 function parseRemoteId(value: unknown): Pick<DesktopSession, 'remoteId'> {
   const ids = Array.isArray(value)
@@ -1983,16 +1981,26 @@ function parseRemoteId(value: unknown): Pick<DesktopSession, 'remoteId'> {
   return last === undefined ? {} : { remoteId: last }
 }
 
+// The link the board draws; the press is answered by the mod, never opened as written.
 function remoteHref(remoteId: string): string {
   return `https://claude.ai/code/${remoteId}`
 }
 
-// The app answers claude.ai/code links itself and opens the conversation there.
+// The system sends an https link to the browser: the app's own scheme opens the
+// conversation in the app. The https link is kept for a computer without the app.
 async function openRemote($: EngineInterface, remoteId: string | undefined): Promise<void> {
-  if (remoteId !== undefined && !(await openUrl($, remoteHref(remoteId)))) {
+  if (remoteId === undefined) {
+    return
+  }
+  const isOpened =
+    (await openUrl($, `claude://claude.ai/code/${remoteId}`)) || (await openUrl($, remoteHref(remoteId)))
+  if (!isOpened) {
     $.ui.toast(config.texts.openFailed)
   }
 }
+
+// A title drawn as a link sits flush with the lines under it, where a Button gets the
+// desktop's inner padding. The link is answered by the mod, never opened as written.
 
 function conversationHref(hostId: string | undefined): string {
   return `https://conversation.invalid/${hostId ?? ''}`
