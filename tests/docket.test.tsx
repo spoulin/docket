@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket',
+    title: '🏷️ Docket 0.11.10',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
