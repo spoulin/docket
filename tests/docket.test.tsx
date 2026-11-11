@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.11.10',
+    title: '🏷️ Docket 0.11.11',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1530,6 +1530,9 @@ test('a snooze hides a conversation for a while, and the search still finds it',
   const line = JSON.stringify(last)
   expect(line.indexOf('"key":"age-a"')).toBeGreaterThan(-1)
   expect(line.indexOf('"key":"age-a"')).toBeLessThan(line.indexOf('"key":"snooze-a"'))
+  // The glyph sits on that line too, left of the age, so the lines above start at the card's edge.
+  expect(line.indexOf('"type":"Svg"')).toBeGreaterThan(-1)
+  expect(line.indexOf('"type":"Svg"')).toBeLessThan(line.indexOf('"key":"age-a"'))
 
   // Snoozed, it leaves the frame of what waits on you and the band's count.
   await ui.select({ key: 'snooze-a', value: '10m' })

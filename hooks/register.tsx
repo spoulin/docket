@@ -15,7 +15,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.11.10'
+const VERSION = '0.11.11'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -699,22 +699,10 @@ export const register: Register = (on, options) => {
     ]
     const pickStatus = (value: string) => saveStatusFilter($, pickStatusFilter(selected, value))
     const renderRow = (row: Row) => (
-      // A mail-like card: glyph, title and age, then facts and git state, side by side;
-      // the note and the summary below take the card's whole width, under the glyph too.
+      // A mail-like card, every line from its left edge: the title, the facts, the git
+      // state, the note and the summary; last, the glyph, the pull request and the age, and 💤.
       <Box key={`row-${row.key}`} flexDirection="column" gap={1}>
         <Box flexDirection="row" alignItems="flex-start" gap={2}>
-          {Svg === undefined ? (
-            <Text color={glyphColor(row.hostId ?? row.key, findProject(row))}>
-              {textGlyph(row.hostId ?? row.key)}
-            </Text>
-          ) : (
-            <Svg
-              source={glyphSvg(row.hostId ?? row.key, findProject(row))}
-              alt={t.glyph}
-              width={22}
-              height={22}
-            />
-          )}
           <Box flexDirection="column" flexGrow={1} flexShrink={1}>
             <Box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={2}>
               <Box flexDirection="column" flexShrink={1}>
@@ -800,7 +788,7 @@ export const register: Register = (on, options) => {
             {formatSummary(row)}
           </Text>
         )}
-        {/* The card's last line: the spinner and the age at the left, 💤 at the right, so the title keeps the width. */}
+        {/* The card's last line: the glyph, the spinner and the age at the left, 💤 at the right; the lines above all start at the card's left edge. */}
         <Box
           key={`snooze-row-${row.key}`}
           flexDirection="row"
@@ -808,32 +796,46 @@ export const register: Register = (on, options) => {
           alignItems="center"
           gap={1}
         >
-          {/* The pull request above the age, as tall together as the 💤 picker. */}
-          <Box key={`facts-${row.key}`} flexDirection="column" alignItems="flex-start" flexShrink={1}>
-            {describePr(row) !== undefined && (
-              <Text key={`pr-${row.key}`} dimColor size="footnote" wrap="truncate-end">
-                {describePr(row)}
+          {/* The glyph, then the pull request above the age, as tall together as the 💤 picker. */}
+          <Box key={`mark-${row.key}`} flexDirection="row" alignItems="center" gap={2} flexShrink={1}>
+            {Svg === undefined ? (
+              <Text color={glyphColor(row.hostId ?? row.key, findProject(row))}>
+                {textGlyph(row.hostId ?? row.key)}
               </Text>
+            ) : (
+              <Svg
+                source={glyphSvg(row.hostId ?? row.key, findProject(row))}
+                alt={t.glyph}
+                width={22}
+                height={22}
+              />
             )}
-            <Box key={`age-${row.key}`} flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
-              {isRunning(row, now) &&
-                (Svg === undefined ? (
-                  <Text key={`running-${row.key}`} dimColor size="caption">
-                    ⋯
-                  </Text>
-                ) : (
-                  <Svg
-                    key={`running-${row.key}`}
-                    source={SPINNER_SVG}
-                    alt={t.running}
-                    width={12}
-                    height={12}
-                    isInteractive
-                  />
-                ))}
-              <Text dimColor size="caption">
-                {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
-              </Text>
+            <Box key={`facts-${row.key}`} flexDirection="column" alignItems="flex-start" flexShrink={1}>
+              {describePr(row) !== undefined && (
+                <Text key={`pr-${row.key}`} dimColor size="footnote" wrap="truncate-end">
+                  {describePr(row)}
+                </Text>
+              )}
+              <Box key={`age-${row.key}`} flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+                {isRunning(row, now) &&
+                  (Svg === undefined ? (
+                    <Text key={`running-${row.key}`} dimColor size="caption">
+                      ⋯
+                    </Text>
+                  ) : (
+                    <Svg
+                      key={`running-${row.key}`}
+                      source={SPINNER_SVG}
+                      alt={t.running}
+                      width={12}
+                      height={12}
+                      isInteractive
+                    />
+                  ))}
+                <Text dimColor size="caption">
+                  {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
+                </Text>
+              </Box>
             </Box>
           </Box>
           {Select !== undefined && (

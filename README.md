@@ -9,9 +9,9 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - The board groups every conversation by status, with a filter on status, one per flag, and a period (1 hour, today, 7 days…).
 - The status filter checks one group or several (in progress + waiting); one stays checked. "No status" is unchecked at first.
 - A search field keeps the conversations whose title, folder, ticket or note holds every word typed. While it holds text, the filters and the ↻ button hide and stop filtering; they come back as they were once it is cleared.
-- In the desktop app, each row is a card: the sidebar title; the folder and flags; the git signs on a line of their own; then, across the card, the note and the last turn summary in italics; last, the pull request above the age at the left, and 💤 at the right.
+- In the desktop app, each row is a card: the sidebar title; the folder and flags; the git signs on a line of their own; then, across the card, the note and the last turn summary in italics; last, the glyph with the pull request above the age at the left, and 💤 at the right.
 - A click on a title opens that conversation.
-- Each conversation gets a small glyph, colored by project, to spot it at a glance.
+- Each conversation gets a small glyph, colored by project, to spot it at a glance, at the bottom left of its card.
 - Titles that name a ticket get a link to it, with rules you set.
 - The band counts the other conversations that wait on you (⚠️ 2); 🏷️ opens the board.
 - A first group, `⚠️ Your turn`, between the filters and the other groups, lists what waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
