@@ -16,6 +16,15 @@ const STALE_MS = 5_000
 const SEPARATOR_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 1" preserveAspectRatio="none">' +
   '<rect width="100" height="1" fill="#8a8a8a" fill-opacity="0.35"/></svg>'
+// A gray ring with a quarter that turns, while Claude works in a conversation.
+const SPINNER_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">' +
+  '<circle cx="8" cy="8" r="6" fill="none" stroke="#8a8a8a" stroke-opacity="0.3" stroke-width="2"/>' +
+  '<path d="M8 2 A6 6 0 0 1 14 8" fill="none" stroke="#8a8a8a" stroke-width="2" stroke-linecap="round">' +
+  '<animateTransform attributeName="transform" type="rotate" from="0 8 8" to="360 8 8" dur="1s" repeatCount="indefinite"/>' +
+  '</path></svg>'
+// While a conversation shows a spinner, the board reads the records this often.
+const RUNNING_REFRESH_MS = 5_000
 
 // The words the mod shows, per language. Ids stay the same in every language:
 // they are what the store keeps.
@@ -77,6 +86,7 @@ const TEXTS = {
     ticketFailed: 'The ticket could not be opened.',
     untitled: 'Untitled conversation',
     never: 'never',
+    running: 'Claude is working',
     blocked: (text: string) => `⚠️ ${text}`,
     review: (text: string) => `👀 To review: ${text}`,
     prStates: { OPEN: 'open', MERGED: 'merged', CLOSED: 'closed', DRAFT: 'draft' } as Record<string, string>,
@@ -142,6 +152,7 @@ const TEXTS = {
     ticketFailed: "Le ticket n'a pas pu être ouvert.",
     untitled: 'Conversation sans titre',
     never: 'jamais',
+    running: 'Claude travaille',
     blocked: (text: string) => `⚠️ ${text}`,
     review: (text: string) => `👀 À revoir : ${text}`,
     prStates: { OPEN: 'ouverte', MERGED: 'mergée', CLOSED: 'fermée', DRAFT: 'brouillon' } as Record<string, string>,
@@ -240,7 +251,7 @@ const all = atom({ plugin: 'docket', key: 'all' } as const, [], {
   shape: 'entry-2',
 })
 const desktop = atom({ plugin: 'docket', key: 'desktop' } as const, [], {
-  shape: 'desktop-2',
+  shape: 'desktop-3',
 })
 // What git says of each branch a conversation committed on, by repository and branch.
 const gitStates = atom({ plugin: 'docket', key: 'git' } as const, {} as Record<string, GitState>)
@@ -328,6 +339,7 @@ export const register: Register = (on, options) => {
     timer = undefined
     settle?.cancel()
     settle = undefined
+    stopRunningRefresh()
 
     return next(e)
   })
@@ -558,6 +570,10 @@ export const register: Register = (on, options) => {
     const selected = resolveStatusFilter(statusChoice)
     const hereId = await $.session.id()
     const now = await $.clock.now()
+    // A board drawn with a spinner reads the records again soon, to stop it.
+    if (rows.some(row => isRunning(row, now))) {
+      startRunningRefresh($)
+    }
     const period = isVisible(PERIOD_FILTER_ID) ? await read($, periodFilter) : 'tout'
     const since = isSearching ? Number.NEGATIVE_INFINITY : findPeriodStart(period, now)
     const found = rows.filter(row => matchesSearch(row, query))
@@ -629,7 +645,22 @@ export const register: Register = (on, options) => {
                   </Text>
                 )}
               </Box>
-              <Box flexShrink={0}>
+              <Box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+                {isRunning(row, now) &&
+                  (Svg === undefined ? (
+                    <Text key={`running-${row.key}`} dimColor size="caption">
+                      ⋯
+                    </Text>
+                  ) : (
+                    <Svg
+                      key={`running-${row.key}`}
+                      source={SPINNER_SVG}
+                      alt={t.running}
+                      width={12}
+                      height={12}
+                      isInteractive
+                    />
+                  ))}
                 <Text dimColor size="caption">
                   {row.lastActivityAt > 0 ? formatAge(now - row.lastActivityAt) : t.never}
                 </Text>
@@ -1098,12 +1129,37 @@ async function readStoredFilters($: EngineInterface): Promise<Filters> {
 // When the data was last read; a board drawn long after reads it again.
 let lastRefreshAt = 0
 
+// The quick reread while a shown board has a spinner: a mod hears no other
+// conversation's turn end, so the board looks again soon. It never asks git.
+let runningTimer: Timer | undefined
+
 async function refreshBoard($: EngineInterface): Promise<void> {
   await refreshAll($)
   const isShown = (await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)
   if (isShown) {
     await update($, tick, value => value + 1)
   }
+  const now = await $.clock.now()
+  const isSpinning = (await read($, desktop)).some(
+    session => !session.isArchived && isRunning(session, now),
+  )
+  if (isShown && isSpinning) {
+    startRunningRefresh($)
+  } else {
+    stopRunningRefresh()
+  }
+}
+
+function startRunningRefresh($: EngineInterface): void {
+  runningTimer ??= $.clock.after(RUNNING_REFRESH_MS, () => {
+    runningTimer = undefined
+    void refreshBoard($).catch(() => undefined)
+  })
+}
+
+function stopRunningRefresh(): void {
+  runningTimer?.cancel()
+  runningTimer = undefined
 }
 
 async function refreshAll($: EngineInterface): Promise<void> {
@@ -1391,6 +1447,7 @@ type Row = {
   summary?: string
   attention?: 'blocked' | 'review_ready'
   pr?: { number: number; state: string }
+  turnStartedAt?: number
 }
 
 // A parsed record per file, kept while the file's time does not change.
@@ -1501,7 +1558,23 @@ function parseDesktopSession(text: string): DesktopSession | null {
     ...parseTurnSummary(record.postTurnSummary),
     ...parsePullRequest(record.prs),
     ...parseWrittenBranches(record.writtenBranches),
+    ...parseRunningTurn(record.latestUserFrameAt, record.lastTurnEdgeAt),
   }
+}
+
+// A turn runs while the person's last message is newer than the last start or end
+// of a turn: the app writes the end of a turn after the message that started it.
+function parseRunningTurn(userFrameAt: unknown, turnEdgeAt: unknown): Pick<DesktopSession, 'turnStartedAt'> {
+  return typeof userFrameAt === 'number' && typeof turnEdgeAt === 'number' && userFrameAt >= turnEdgeAt
+    ? { turnStartedAt: userFrameAt }
+    : {}
+}
+
+// An app that quits during a turn never writes its end: a turn quiet this long is over.
+const RUNNING_STALE_MS = 10 * 60_000
+
+function isRunning(row: Pick<Row, 'turnStartedAt' | 'lastActivityAt'>, now: number): boolean {
+  return row.turnStartedAt !== undefined && now - row.lastActivityAt < RUNNING_STALE_MS
 }
 
 function parseTurnSummary(value: unknown): Pick<DesktopSession, 'summary' | 'attention'> {
@@ -1583,6 +1656,7 @@ function buildRows(sessions: readonly DesktopSession[], entries: readonly Entry[
       attention: session.attention,
       pr: session.pr,
       branches: session.branches,
+      turnStartedAt: session.turnStartedAt,
     })
   }
   const hostIds = new Set(sessions.map(session => session.hostId))

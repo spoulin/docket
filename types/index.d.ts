@@ -40,6 +40,8 @@ export type DesktopSession = {
   pr?: { number: number; state: string }
   // The branches the conversation committed on.
   branches?: { repo: string; branch: string }[]
+  // When the person's last message came, while Claude has not ended the turn it started.
+  turnStartedAt?: number
 }
 
 // What git says of one branch: files changed on it, commits no remote has, and

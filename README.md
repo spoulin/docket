@@ -20,10 +20,12 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
   Git is asked about a conversation's branches when you come into it, and again right after Claude runs a git command there that changes a branch (commit, push, merge…).
   ↻ asks about every row shown. Other rows show what was last learned; every conversation shares the answers.
   Untracked files and merge commits are left out, and a squash-merged branch without a pull request reads as not merged.
+- A small spinner left of the age marks a conversation where Claude is working (`⋯` in the terminal).
+  It stops at most 5 seconds after the turn ends, and after 10 minutes without activity (an app that quit during a turn).
 
 > [!WARNING]
 > In the desktop app, the board reads the app's own conversation records and opens conversations through the app's own links.
-> Neither is a documented interface: an app update can break the titles, the summaries or the open links.
+> Neither is a documented interface: an app update can break the titles, the summaries, the spinner or the open links.
 > The status band and the `/docket` command do not depend on them.
 
 ## Install
@@ -57,7 +59,8 @@ The board reads the conversations again:
 
 - when a turn of the current conversation ends;
 - when you come back to a conversation whose board is open;
-- every 30 seconds, and with its ↻ button.
+- every 30 seconds, and with its ↻ button;
+- every 5 seconds while the board is shown and a conversation shows a spinner. This reread never asks git.
 
 A mod hears only its own conversation's events, so another conversation's changes show up on the next of these.
 

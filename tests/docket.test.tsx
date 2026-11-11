@@ -104,7 +104,8 @@ function mockEngine(
             name,
             kind: 'file' as const,
             size: 1,
-            mtimeMs: 1,
+            // Changes with the content, so a rewritten record is read again.
+            mtimeMs: [...(files[name] ?? '')].reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) | 0, 7),
             isLink: false,
           }))
         : [],
@@ -1198,4 +1199,58 @@ test('coming into a conversation and its git commands ask git about its branches
   await $.tool.call({ tool: 'Bash', command: 'cd repo && git push origin mine' })
   expect(asked.length).toBeGreaterThan(count)
   expect(asked.some(args => args.includes('refs/heads/theirs'))).toBe(false)
+})
+
+// The mock clock reads one hour: the turn started 20 s ago and moved 10 s ago.
+const RUNNING = { latestUserFrameAt: 3_580_000, lastTurnEdgeAt: 3_570_000, lastActivityAt: 3_590_000 }
+
+// A drawing keeps no key: spinners are counted by what they say.
+async function findSpinners(ui: {
+  findAll: (query: { type: string }) => Promise<{ props: Record<string, unknown> }[]>
+}): Promise<{ props: Record<string, unknown> }[]> {
+  return (await ui.findAll({ type: 'Svg' })).filter(one => one.props.alt === 'Claude travaille')
+}
+
+test('a spinner marks a running conversation and stops soon after its turn ends', FR, async ($, on) => {
+  const files: Record<string, string> = {
+    'local_busy.json': desktopRecord('busy', 'Occupée', false, RUNNING),
+    'local_idle.json': desktopRecord('idle', 'Au repos', false, {
+      latestUserFrameAt: 3_500_000,
+      lastTurnEdgeAt: 3_510_000,
+      lastActivityAt: 3_590_000,
+    }),
+  }
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, files)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await findSpinners(ui)).toHaveLength(1)
+  expect((await findSpinners(ui))[0]?.props.isInteractive).toBe(true)
+
+  // The turn ends; the board sees it on its quick reread, 5 seconds later.
+  files['local_busy.json'] = desktopRecord('busy', 'Occupée', false, { ...RUNNING, lastTurnEdgeAt: 3_595_000 })
+  await clock.advance(4_000)
+  expect(await findSpinners(ui)).toHaveLength(1)
+  await clock.advance(1_000)
+  await clock.advance(1)
+  expect(await findSpinners(ui)).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('a turn quiet for 10 minutes shows no spinner, and the terminal shows a dot mark', FR, async ($, on) => {
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, {
+    'local_busy.json': desktopRecord('busy', 'Occupée', false, RUNNING),
+    'local_quit.json': desktopRecord('quit', 'Quittée', false, { ...RUNNING, lastActivityAt: 3_000_000 }),
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await findSpinners(ui)).toHaveLength(1)
+  await ui.unmount()
+
+  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await terminal.findAll({ type: 'Text', text: /^⋯$/ })).toHaveLength(1)
+  await terminal.unmount()
 })
