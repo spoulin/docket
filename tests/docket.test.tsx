@@ -1397,7 +1397,9 @@ test('the board shows the conversations another computer shared', SYNC, async ($
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // In its status group, named after its computer, with that computer's git and a spinner.
   expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^💻 Bureau · api$/ })).toBeTruthy()
+  // Its computer on a line of its own under the title, then the facts line.
+  expect(await ui.find({ type: 'Text', text: '💻 Bureau' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^api$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
   expect(await ui.find({ type: 'Svg', alt: 'Claude travaille' } as never)).toBeTruthy()
   // It opens through Remote Control; it cannot be removed from here.

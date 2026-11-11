@@ -691,6 +691,14 @@ export const register: Register = (on, options) => {
                 </Text>
               </Box>
             </Box>
+            {row.machine !== undefined && (
+              // Another computer's conversation: that computer, on a line of its own under the title.
+              <Box key={`machine-${row.key}`} flexDirection="row" justifyContent="flex-start">
+                <Text dimColor size="footnote" wrap="truncate-end">
+                  {`💻 ${row.machine.name}`}
+                </Text>
+              </Box>
+            )}
             <Box flexDirection="row" alignItems="center" gap={1}>
               {findTicket(row.title) !== undefined && (
                 <Markdown
@@ -2350,8 +2358,7 @@ function matchesFlag(row: Row, flag: FlagDef, filter: FlagFilter): boolean {
 
 // The row's facts line: folder, pull request and flags; the age has its own line under it.
 function describe(row: Row): string {
-  // Another computer's conversation names that computer first.
-  const parts = row.machine === undefined ? [row.folder] : [`💻 ${row.machine.name}`, row.folder]
+  const parts = [row.folder]
   if (row.pr !== undefined) {
     parts.push(`PR #${row.pr.number} ${formatPrState(row.pr.state)}`.trim())
   }
