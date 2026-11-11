@@ -1649,8 +1649,10 @@ test('a group with conversations of several computers shows this one first, unde
   expect(at('🏠 Local')).toBeGreaterThan(-1)
   expect(at('💻 Bureau')).toBeGreaterThan(at('🏠 Local'))
   expect(at('Loin')).toBeGreaterThan(at('💻 Bureau'))
-  // A thin rule closes the Local section before the other computer's name.
-  expect(at('separator-place-')).toBeGreaterThan(at('🏠 Local'))
-  expect(at('separator-place-')).toBeLessThan(at('💻 Bureau'))
+  // The rule closing the Local section's last card comes before the other computer's name.
+  expect(at('separator-other')).toBeGreaterThan(at('🏠 Local'))
+  expect(at('separator-other')).toBeLessThan(at('💻 Bureau'))
+  // The last card of the group gets its rule too, before the next heading.
+  expect(at('separator-far')).toBeGreaterThan(at('Loin'))
   await ui.unmount()
 })

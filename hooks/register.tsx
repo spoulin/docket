@@ -856,11 +856,9 @@ export const register: Register = (on, options) => {
         </Box>
       </Box>
     )
+    // A thin rule closes every card, the last one before a heading included.
     const listRows = (list: readonly Row[]) =>
-      list.flatMap((row, index) => [
-        ...(index === 0 ? [] : [separator(`separator-${row.key}`)]),
-        renderRow(row),
-      ])
+      list.flatMap(row => [renderRow(row), separator(`separator-${row.key}`)])
     // A list holding conversations of other computers is cut in two: this computer's
     // first, under "Local", then each other computer's under its name.
     const listByPlace = (prefix: string, list: readonly Row[]) => {
@@ -873,16 +871,15 @@ export const register: Register = (on, options) => {
         return listRows(list)
       }
 
-      // The same thin rule as between two cards closes each section before the next one's name.
-      return places.flatMap((place, index) => [
-        ...(index === 0 ? [] : [separator(`separator-place-${prefix}-${place ?? 'local'}`)]),
+      // The rule closing each section's last card sets it apart from the next one's name.
+      return places.map(place => (
         <Box key={`place-${prefix}-${place ?? 'local'}`} flexDirection="column" gap={1}>
           <Text weight="semibold" dimColor>
             {place === undefined ? t.local : t.machine(place)}
           </Text>
           {listRows(list.filter(row => row.machine?.name === place))}
         </Box>
-      ])
+      ))
     }
     // Each picker with its label above it, laid out in two columns, row by row.
     // The right column's pickers sit against the frame's right edge, label and all.
