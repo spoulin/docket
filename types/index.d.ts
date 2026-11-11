@@ -21,6 +21,8 @@ export type Entry = {
   flags: Record<string, boolean>
   // A free line the person wrote about the conversation: why it waits, what is next.
   note?: string
+  // A conversation kept to look at the board: it is left off the board and the sync.
+  isDashboard?: boolean
   updatedAt: number
 }
 

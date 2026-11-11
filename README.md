@@ -27,6 +27,12 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - A small spinner, left of the age at the bottom of the card, marks a conversation where Claude is working (`⋯` in the terminal).
   It stops at most 5 seconds after the turn ends, and after 10 minutes without activity (an app that quit during a turn).
   It reads the end of each recently active conversation's transcript, under `~/.claude/projects`, and falls back on the app's records when there is none.
+- A wide board (the side panel made full screen) lays its groups side by side, one column each, with its filters on one line.
+  `✻ Clauding`, a column after Your turn, holds the conversations where Claude is working; they leave their group until the turn ends.
+  It keeps filters of its own, starting from the side panel's.
+- `/docket dashboard` makes the current conversation a dashboard: one kept to look at the board, which opens there by itself.
+  It leaves the board, the band's count and the sync, and its band shows `📊 Dashboard` rather than a status.
+  While its board runs, a toast says when a conversation starts to wait on you (`⚠️ Fix the build waits on you`), and when Claude is done in one (`✻ Fix the build is done`).
 - With a sync folder, the board also shows the conversations of your other computers, named after them (`💻 Office`): see [Sharing between computers](#sharing-between-computers).
 
 > [!WARNING]
@@ -76,6 +82,7 @@ To update the mod later: `claude plugin marketplace update docket`, then `claude
 - `/docket` opens the board.
 - `/docket <status>` sets the status, by its id or its label: `/docket done`, `/docket waiting`.
 - `/docket <flag> [yes|no]` sets a flag: `/docket remote yes`. With no value, it toggles.
+- `/docket dashboard [yes|no]` makes the conversation a dashboard, or a plain one again. With no value, it toggles.
 - `/docket note <text>` writes the conversation's note, shown in the band and on the board. `/docket note` alone clears it.
 - The band above the prompt does the same, with buttons, a dropdown or one cycling button (see `statusControl`).
 
@@ -131,7 +138,7 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 ```
 
 - `id`: letters, digits and dashes. The store keeps it, so change a label freely, not an id.
-- `tous`, `aucun`, `a-toi` and `note` are taken by the board and the note command.
+- `tous`, `aucun`, `a-toi`, `note` and `dashboard` are taken by the board and the note command.
 - `label`: what the band and the board show. It may hold an emoji: `"🔨 In progress"`.
 - A default status listed by its id alone (`{ "id": "termine" }`) keeps its translated label: list the defaults in another order this way.
 - The first status is the one a new conversation gets.
@@ -147,7 +154,7 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 ]
 ```
 
-- `id`: letters, digits and dashes. It cannot be a status id, nor `tous`, `aucun`, `a-toi`, `note`, `status` or `period`.
+- `id`: letters, digits and dashes. It cannot be a status id, nor `tous`, `aucun`, `a-toi`, `note`, `dashboard`, `status` or `period`.
 - `label`: the name of the flag's filter on the board.
 - `on` (optional): the flag's name next to its check box in the band, its "yes" in the filter, and its word in the row. Default: the label.
 - `off` (optional): the filter's "no". Default: "Not" and the label.

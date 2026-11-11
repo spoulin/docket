@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.4'
+const VERSION = '0.12.5'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -48,6 +48,13 @@ const TEXTS = {
     commandDescription: (statusIds: string, flagIds: string) =>
       `Status: ${statusIds}; ${flagIds} [yes|no]; note <text>; alone, opens the board`,
     boardOpened: 'Status board opened.',
+    dashboard: '📊 Dashboard',
+    dashboardOn: 'This conversation is now a dashboard: it leaves the board, and its board opens by itself here.',
+    dashboardOff: 'This conversation is no longer a dashboard.',
+    alertYourTurn: (title: string) => `⚠️ ${title} waits on you`,
+    alertYourTurnMany: (count: number) => `⚠️ ${count} conversations wait on you`,
+    alertDone: (title: string) => `✻ ${title} is done`,
+    alertDoneMany: (count: number) => `✻ ${count} conversations are done`,
     unknownFlag: (value: string) => `Unknown value "${value}". Values: yes, no.`,
     unknownStatus: (value: string, ids: string) => `Unknown status "${value}". Values: ${ids}.`,
     statusSet: (label: string) => `Status: ${label}.`,
@@ -130,6 +137,13 @@ const TEXTS = {
     commandDescription: (statusIds: string, flagIds: string) =>
       `Statut : ${statusIds}; ${flagIds} [oui|non]; note <texte>; seul, ouvre le tableau`,
     boardOpened: 'Tableau des statuts ouvert.',
+    dashboard: '📊 Tableau de bord',
+    dashboardOn: 'Cette conversation est maintenant un tableau de bord : elle quitte le board, et son board s’ouvre tout seul ici.',
+    dashboardOff: 'Cette conversation n’est plus un tableau de bord.',
+    alertYourTurn: (title: string) => `⚠️ ${title} t’attend`,
+    alertYourTurnMany: (count: number) => `⚠️ ${count} conversations t’attendent`,
+    alertDone: (title: string) => `✻ ${title} a fini`,
+    alertDoneMany: (count: number) => `✻ ${count} conversations ont fini`,
     unknownFlag: (value: string) => `Valeur inconnue "${value}". Valeurs : oui, non.`,
     unknownStatus: (value: string, ids: string) => `Statut inconnu "${value}". Valeurs : ${ids}.`,
     statusSet: (label: string) => `Statut : ${label}.`,
@@ -271,7 +285,7 @@ const NO_STATUS = 'aucun'
 // Kept out of status and flag ids: 0.4 stored it as a status filter.
 const YOUR_TURN = 'a-toi'
 // Ids the statuses and flags cannot take: the filter's own values, and the note command.
-const RESERVED_IDS: readonly string[] = [ALL_STATUSES, NO_STATUS, YOUR_TURN, 'note']
+const RESERVED_IDS: readonly string[] = [ALL_STATUSES, NO_STATUS, YOUR_TURN, 'note', 'dashboard']
 // The status picker's own values: its summary line, and a group to check or uncheck.
 const STATUS_SUMMARY = 'resume'
 const STATUS_TOGGLE = 'basculer:'
@@ -385,6 +399,7 @@ export const register: Register = (on, options) => {
       }
     }
     await refreshAll($)
+    await openDashboard($)
 
     timer?.cancel()
     timer = $.clock.every(REFRESH_MS, () => {
@@ -410,6 +425,7 @@ export const register: Register = (on, options) => {
   on('session.attach', async ($, e, next) => {
     const attached = await next(e)
     void refreshBoard($).catch(() => undefined)
+    void openDashboard($).catch(() => undefined)
 
     return attached
   })
@@ -476,6 +492,22 @@ export const register: Register = (on, options) => {
     }
 
     const [word = '', value, ...rest] = args.split(/\s+/)
+    if (word.toLowerCase() === 'dashboard' && rest.length === 0) {
+      const entry = await ensureEntry($)
+      const isOn = value === undefined ? entry.isDashboard !== true : parseFlag(value.toLowerCase())
+      if (isOn === null) {
+        return { text: t.unknownFlag(value ?? '') }
+      }
+      const { isDashboard: _was, ...plain } = entry
+      // A dashboard has no status: it is no conversation to follow.
+      await saveEntry($, isOn ? { ...plain, status: null, isDashboard: true } : plain)
+      await refreshAll($)
+      if (isOn) {
+        await $.ui.open({ id: PANE, title: t.paneTitle })
+      }
+
+      return { text: isOn ? t.dashboardOn : t.dashboardOff }
+    }
     const flag = findFlag(word)
     if (flag !== undefined && rest.length === 0) {
       const entry = await ensureEntry($)
@@ -569,9 +601,14 @@ export const register: Register = (on, options) => {
         !isSnoozed(asleep, session.hostId, bandNow),
     ).length
 
-    // Left: this conversation (status, flags, note). Right: every conversation.
+    // Left: this conversation (status, flags, note), or the dashboard's name. Right: every conversation.
     return (
       <Box flexDirection="row" alignItems="center" justifyContent="space-between" gap={2}>
+        {entry?.isDashboard === true ? (
+          <Text key="dashboard" dimColor>
+            {t.dashboard}
+          </Text>
+        ) : (
         <Box flexDirection="row" flexWrap="wrap" alignItems="center" gap={1} flexShrink={1}>
           {statusControl}
           {flags().map(flag => {
@@ -593,6 +630,7 @@ export const register: Register = (on, options) => {
             </Text>
           )}
         </Box>
+        )}
         <Box flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
           {waiting > 0 && (
             <Button
@@ -1461,6 +1499,7 @@ let runningTimer: Timer | undefined
 
 async function refreshBoard($: EngineInterface): Promise<void> {
   await refreshAll($)
+  await alertChanges($).catch(() => undefined)
   const isShown = (await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown)
   if (isShown) {
     await update($, tick, value => value + 1)
@@ -1473,6 +1512,60 @@ async function refreshBoard($: EngineInterface): Promise<void> {
     startRunningRefresh($)
   } else {
     stopRunningRefresh()
+  }
+}
+
+// What the dashboard saw last: the conversations waiting on the person, and those running.
+let alerted: { waiting: Set<string>; running: Set<string> } | undefined
+
+// In a dashboard only, a toast says which conversations newly wait on the person,
+// and which ones Claude just finished working in.
+async function alertChanges($: EngineInterface): Promise<void> {
+  if ((await read($, current))?.isDashboard !== true) {
+    alerted = undefined
+    return
+  }
+  const t = config.texts
+  const now = await $.clock.now()
+  const asleep = await read($, snoozes)
+  const hereId = await $.session.id()
+  const rows = buildAllRows(await read($, desktop), await read($, all), await read($, remote)).filter(
+    row => row.key !== hereId && !isSnoozed(asleep, snoozeKey(row), now),
+  )
+  const waiting = new Set(rows.filter(row => row.attention === 'blocked').map(row => row.key))
+  const running = new Set(rows.filter(row => isRunning(row, now)).map(row => row.key))
+  const before = alerted
+  alerted = { waiting, running }
+  // The first look only learns what is there.
+  if (before === undefined) {
+    return
+  }
+  const titleOf = (key: string) => rows.find(row => row.key === key)?.title ?? ''
+  const newlyWaiting = [...waiting].filter(key => !before.waiting.has(key))
+  // A conversation that stopped to ask something is told once, as waiting.
+  const done = [...before.running].filter(
+    key => !running.has(key) && !waiting.has(key) && rows.some(row => row.key === key),
+  )
+  if (newlyWaiting.length === 1) {
+    await $.ui.toast(t.alertYourTurn(titleOf(newlyWaiting[0] ?? '')))
+  } else if (newlyWaiting.length > 1) {
+    await $.ui.toast(t.alertYourTurnMany(newlyWaiting.length))
+  }
+  if (done.length === 1) {
+    await $.ui.toast(t.alertDone(titleOf(done[0] ?? '')))
+  } else if (done.length > 1) {
+    await $.ui.toast(t.alertDoneMany(done.length))
+  }
+}
+
+// A dashboard opens its board by itself.
+async function openDashboard($: EngineInterface): Promise<void> {
+  if ((await read($, current))?.isDashboard !== true) {
+    return
+  }
+  const isOpen = (await $.ui.panes()).some(pane => pane.id === PANE)
+  if (!isOpen) {
+    await $.ui.open({ id: PANE, title: config.texts.paneTitle })
   }
 }
 
@@ -1639,8 +1732,12 @@ async function publishOwn($: EngineInterface): Promise<void> {
   const archived = new Set(
     (await read($, desktop)).filter(session => session.isArchived).map(session => session.hostId),
   )
+  // A dashboard is no conversation to follow: the other computers never see it.
+  const dashboards = new Set(
+    (await read($, all)).flatMap(entry => (entry.isDashboard === true ? [entry.hostId ?? entry.sessionId] : [])),
+  )
   const entries = (await read($, all)).filter(
-    entry => entry.hostId === undefined || !archived.has(entry.hostId),
+    entry => (entry.hostId === undefined || !archived.has(entry.hostId)) && entry.isDashboard !== true,
   )
   const keys = new Set(
     sessions.flatMap(session => (session.branches ?? []).map(one => gitKey(one.repo, one.branch))),
@@ -1652,7 +1749,7 @@ async function publishOwn($: EngineInterface): Promise<void> {
   const machine: RemoteMachine = {
     machineId: id,
     name: await findMachineName($),
-    sessions: sessions.filter(session => hostIds.has(session.hostId)),
+    sessions: sessions.filter(session => hostIds.has(session.hostId) && !dashboards.has(session.hostId)),
     entries,
     git,
     snoozes: await readStoredSnoozes($),
@@ -2065,7 +2162,10 @@ function buildAllRows(
     return true
   })
 
-  return [...local, ...remoteRows].sort((a, b) => b.lastActivityAt - a.lastActivityAt)
+  // A dashboard is no conversation to follow: it is left off the board.
+  return [...local, ...remoteRows]
+    .filter(row => row.entry?.isDashboard !== true)
+    .sort((a, b) => b.lastActivityAt - a.lastActivityAt)
 }
 
 // A parsed record per file, kept while the file's time does not change.
@@ -2999,6 +3099,7 @@ function readEntry(value: unknown): Entry | null {
     status: entry.status as string | null,
     flags: flagsSet,
     ...(typeof entry.note === 'string' && entry.note !== '' ? { note: entry.note } : {}),
+    ...(entry.isDashboard === true ? { isDashboard: true } : {}),
     updatedAt: entry.updatedAt as number,
   }
 }

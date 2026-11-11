@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.4',
+    title: '🏷️ Docket 0.12.5',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1768,4 +1768,63 @@ test('a wide board keeps filters of its own, started from the side panel ones', 
   await back.unmount()
   expect((store.get('filters') as { period: string }).period).toBe('7d')
   expect((store.get('filtersWide') as { period: string }).period).toBe('1h')
+})
+
+test('a dashboard conversation leaves the board and its band names it', FR, async ($, on) => {
+  const store = mockEngine(on, {}, {
+    'local_here.json': desktopRecord('here', 'Tableau'),
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: 'en-cours' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Box', key: 'row-here' })).toBeTruthy()
+
+  const made = await $.command.run({ command: 'docket', args: 'dashboard' })
+  expect(made.text).toContain('tableau de bord')
+  expect(await ui.find({ type: 'Box', key: 'row-here' })).toBeFalsy()
+  expect((store.get('host:local_here') as { status: unknown; isDashboard: boolean }).status).toBeNull()
+
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await band.find({ type: 'Text', text: /Tableau de bord/ })).toBeTruthy()
+  expect(await band.find({ type: 'Button', key: 'status-en-cours' })).toBeFalsy()
+  await band.unmount()
+
+  const undone = await $.command.run({ command: 'docket', args: 'dashboard non' })
+  expect(undone.text).toContain('n’est plus')
+  expect((store.get('host:local_here') as { isDashboard?: boolean }).isDashboard).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a dashboard tells when a conversation waits on you or Claude is done', FR, async ($, on) => {
+  const files: Record<string, string> = {
+    'local_here.json': desktopRecord('here', 'Tableau'),
+    'local_busy.json': desktopRecord('busy', 'Occupée', false, RUNNING),
+    'local_ask.json': desktopRecord('ask', 'Questionneuse', false, RUNNING),
+  }
+  mockEngine(on, {}, files)
+  const toasts: string[] = []
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: 'dashboard' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  // The first look only learns what runs.
+  await clock.advance(30_000)
+  expect(toasts).toEqual([])
+
+  // One turn ends; the other stops to ask something.
+  files['local_busy.json'] = desktopRecord('busy', 'Occupée', false, { ...RUNNING, lastTurnEdgeAt: 3_595_000 })
+  files['local_ask.json'] = desktopRecord('ask', 'Questionneuse', false, {
+    ...RUNNING,
+    lastTurnEdgeAt: 3_595_000,
+    postTurnSummary: { status_category: 'blocked', needs_action: 'Laquelle ?' },
+  })
+  await clock.advance(30_000)
+  expect(toasts).toEqual(['⚠️ Questionneuse t’attend', '✻ Occupée a fini'])
+  await ui.unmount()
 })
