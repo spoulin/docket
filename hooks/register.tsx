@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.15'
+const VERSION = '0.12.16'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -65,6 +65,8 @@ const TEXTS = {
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `🫵 Your turn (${count})`,
     runningGroup: (count: number) => `✻ Clauding (${count})`,
+    noYourTurn: 'Nothing waits on you.',
+    noRunning: 'Claude is working nowhere.',
     saveFailed: 'The conversation status could not be saved.',
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
@@ -157,6 +159,8 @@ const TEXTS = {
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `🫵 Ton tour (${count})`,
     runningGroup: (count: number) => `✻ Clauding (${count})`,
+    noYourTurn: 'Rien ne t’attend.',
+    noRunning: 'Claude ne travaille nulle part.',
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
@@ -1079,14 +1083,23 @@ export const register: Register = (on, options) => {
     }
     const pickers = filterIds().flatMap(id => allPickers.filter(picker => picker.id === id))
     // What waits on the person comes first, then each group shown that holds a conversation.
+    // On a wide board, Your turn and Clauding keep their columns even when empty, so
+    // the columns do not move as conversations come and go.
     const sectionList = [
-      ...(yourTurn.length > 0
-        ? [{ id: 'your-turn', heading: t.yourTurn(yourTurn.length), rows: yourTurn }]
+      ...(yourTurn.length > 0 || isWideBoard
+        ? [{ id: 'your-turn', heading: t.yourTurn(yourTurn.length), rows: yourTurn, empty: t.noYourTurn }]
         : []),
-      ...(running.length > 0 ? [{ id: 'running', heading: t.runningGroup(running.length), rows: running }] : []),
+      ...(running.length > 0 || isWideBoard
+        ? [{ id: 'running', heading: t.runningGroup(running.length), rows: running, empty: t.noRunning }]
+        : []),
       ...groups
         .filter(group => isShown(group.id) && group.rows.length > 0)
-        .map(group => ({ id: group.id, heading: `${group.label} (${group.rows.length})`, rows: group.rows })),
+        .map(group => ({
+          id: group.id,
+          heading: `${group.label} (${group.rows.length})`,
+          rows: group.rows,
+          empty: '',
+        })),
     ]
     const isWide = isWideBoard && sectionList.length > 1
     if (isWide) {
@@ -1106,7 +1119,13 @@ export const register: Register = (on, options) => {
             {section.heading}
           </Text>
         </Box>
-        {listByPlace(section.id, section.rows)}
+        {section.rows.length === 0 ? (
+          <Text key={`empty-${section.id}`} dimColor>
+            {section.empty}
+          </Text>
+        ) : (
+          listByPlace(section.id, section.rows)
+        )}
       </Box>
     ))
     return (
@@ -1197,7 +1216,7 @@ export const register: Register = (on, options) => {
             </Box>
           )}
         </Box>
-        {sectionList.length === 0 && (
+        {sectionList.every(section => section.rows.length === 0) && (
           <Text dimColor>{query.trim() === '' ? t.empty : t.noMatch(query.trim())}</Text>
         )}
         {isWide ? (
