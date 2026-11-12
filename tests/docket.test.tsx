@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.11',
+    title: '🏷️ Docket 0.12.12',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -805,7 +805,7 @@ test('the band counts the conversations that wait on the person', FR, async ($, 
   await $.command.run({ command: 'docket', args: 'termine' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // What waits on the person is a group of its own, with a heading like the others and no frame.
-  expect(await ui.find({ type: 'Text', text: '⚠️ À toi (2)' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: '🫵 Ton tour (2)' })).toBeTruthy()
   expect((await ui.find({ type: 'Box', key: 'your-turn' } as never))?.props.borderStyle).toBeUndefined()
   expect((await ui.find({ type: 'Box', key: 'filters' } as never))?.props).toMatchObject({
     borderStyle: 'single',
@@ -869,7 +869,7 @@ test('a your-turn filter kept by 0.4 falls back to every status', FR, async ($, 
     'Tous',
   )
   // Nothing waits on the person: no section.
-  expect(await ui.find({ type: 'Text', text: /^⚠️ À toi/ })).toBeFalsy()
+  expect(await ui.find({ type: 'Text', text: /^🫵 Ton tour/ })).toBeFalsy()
   await ui.select({ key: 'period-filter', value: 'today' })
   expect(store.get('filters')).toEqual({ status: 'tous', period: 'today', flags: {} })
   await ui.unmount()

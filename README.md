@@ -14,7 +14,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - Each conversation gets a small glyph, colored by project, to spot it at a glance, at the bottom left of its card.
 - Titles that name a ticket get a link to it, with rules you set.
 - The band counts the other conversations that wait on you (⚠️ 2); 🏷️ opens the board.
-- A first group, `⚠️ Your turn`, between the filters and the other groups, lists what waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
+- A first group, `🫵 Your turn`, between the filters and the other groups, lists what waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
   A conversation counts as waiting when the app's own summary of its last turn says so, or when that turn closed on a question in the next-step box (`Does the size suit you?`), which the app's summary sometimes misses.
 - A short note per conversation says why it waits or what comes next.
 - 🌙, at the bottom right of each card, snoozes a conversation for 5, 10, 15 or 30 minutes, an hour or a day: whatever its status, it leaves the board, the Your turn group and the band's count, and comes back once the time is up.
