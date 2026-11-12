@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.16'
+const VERSION = '0.12.17'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -65,8 +65,8 @@ const TEXTS = {
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `🫵 Your turn (${count})`,
     runningGroup: (count: number) => `✻ Clauding (${count})`,
-    noYourTurn: 'Nothing waits on you.',
-    noRunning: 'Claude is working nowhere.',
+    noYourTurn: ['Nothing for you', 'Coffee time ☕', 'Inbox zero'],
+    noRunning: ['Claude’s on break', 'Claude’s taking it easy', 'Claude’s bored'],
     saveFailed: 'The conversation status could not be saved.',
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
@@ -159,8 +159,8 @@ const TEXTS = {
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `🫵 Ton tour (${count})`,
     runningGroup: (count: number) => `✻ Clauding (${count})`,
-    noYourTurn: 'Rien ne t’attend.',
-    noRunning: 'Claude ne travaille nulle part.',
+    noYourTurn: ['Rien pour toi', 'L’heure du café ☕', 'Inbox zéro'],
+    noRunning: ['Claude est en pause', 'Claude prend ça relax', 'Claude s’ennuie'],
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
@@ -1087,10 +1087,10 @@ export const register: Register = (on, options) => {
     // the columns do not move as conversations come and go.
     const sectionList = [
       ...(yourTurn.length > 0 || isWideBoard
-        ? [{ id: 'your-turn', heading: t.yourTurn(yourTurn.length), rows: yourTurn, empty: t.noYourTurn }]
+        ? [{ id: 'your-turn', heading: t.yourTurn(yourTurn.length), rows: yourTurn, empty: pickEmpty('your-turn', yourTurn.length, t.noYourTurn, now) }]
         : []),
       ...(running.length > 0 || isWideBoard
-        ? [{ id: 'running', heading: t.runningGroup(running.length), rows: running, empty: t.noRunning }]
+        ? [{ id: 'running', heading: t.runningGroup(running.length), rows: running, empty: pickEmpty('running', running.length, t.noRunning, now) }]
         : []),
       ...groups
         .filter(group => isShown(group.id) && group.rows.length > 0)
@@ -1639,6 +1639,24 @@ async function checkNewerVersion($: EngineInterface): Promise<void> {
   if ((await read($, newerVersion)) !== found) {
     await update($, newerVersion, () => found)
   }
+}
+
+// The line an empty column shows, picked when it empties and kept until it fills
+// again, so it does not change at each redraw.
+const emptyLines = new Map<string, number>()
+
+function pickEmpty(id: string, count: number, lines: readonly string[], now: number): string {
+  if (count > 0) {
+    emptyLines.delete(id)
+    return ''
+  }
+  let index = emptyLines.get(id)
+  if (index === undefined) {
+    index = Math.floor(now / 1000) % lines.length
+    emptyLines.set(id, index)
+  }
+
+  return lines[index] ?? ''
 }
 
 // A dashboard opens its board by itself.

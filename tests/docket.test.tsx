@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.16',
+    title: '🏷️ Docket 0.12.17',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1742,8 +1742,8 @@ test('a wide board lays its groups side by side, one column each', FR, async ($,
   // Your turn and Clauding keep their columns, empty, so the others do not move.
   expect(board.indexOf('"your-turn"')).toBeLessThan(board.indexOf('group-running'))
   expect(board.indexOf('group-running')).toBeLessThan(board.indexOf('group-en-cours'))
-  expect(board).toContain('Rien ne t’attend.')
-  expect(board).toContain('Claude ne travaille nulle part.')
+  expect(['Rien pour toi', 'L’heure du café ☕', 'Inbox zéro'].some(line => board.includes(line))).toBe(true)
+  expect(['Claude est en pause', 'Claude prend ça relax', 'Claude s’ennuie'].some(line => board.includes(line))).toBe(true)
   // Its filters sit on one line rather than in two columns.
   expect(await wide.find({ type: 'Box', key: 'filter-line' })).toBeTruthy()
   expect(await wide.find({ type: 'Box', key: 'filter-column-1' })).toBeFalsy()

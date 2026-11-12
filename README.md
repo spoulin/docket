@@ -29,7 +29,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
   It stops at most 5 seconds after the turn ends, and after 10 minutes without activity (an app that quit during a turn).
   It reads the end of each recently active conversation's transcript, under `~/.claude/projects`, and falls back on the app's records when there is none.
 - A wide board (the side panel made full screen) lays its groups side by side, one column each, with its filters on one line.
-  `✻ Clauding`, a column after Your turn, holds the conversations where Claude is working; they leave their group until the turn ends. On a wide board, Your turn and Clauding keep their columns when empty, with a line saying so, so the other columns stay in place.
+  `✻ Clauding`, a column after Your turn, holds the conversations where Claude is working; they leave their group until the turn ends. On a wide board, Your turn and Clauding keep their columns when empty, with a short line picked among a few (`Coffee time ☕`, `Claude’s bored`), so the other columns stay in place.
   It keeps filters of its own, starting from the side panel's.
 - `/docket dashboard` makes the current conversation a dashboard: one kept to look at the board, which opens there by itself.
   It leaves the board, the band's count and the sync, and its band shows `📊 Dashboard` rather than a status.
