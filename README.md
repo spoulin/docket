@@ -232,7 +232,7 @@ claude plugin test .
 ```
 
 To run your working copy, name its folder in `CLAUDE_CODE_PLUGIN_DIRS`, in the `env` block of `~/.claude/settings.json`.
-A new conversation loads the latest version.
+The app loads the mod when it starts. When that folder holds another version than the one running (after a `git pull`, say), the board says so on its first line: restart the app to use it.
 
 ## License
 

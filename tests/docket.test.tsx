@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.14',
+    title: '🏷️ Docket 0.12.15',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -92,8 +92,10 @@ function mockEngine(
   on: On,
   entries: Record<string, unknown> = {},
   files: Record<string, string> = {},
+  moreEnv: Record<string, string> = {},
 ): Map<string, unknown> {
   const env: Record<string, string> = {
+    ...moreEnv,
     HOME: '/Users/me',
     CLAUDE_CODE_ACCOUNT_UUID: 'acc',
     CLAUDE_CODE_ORGANIZATION_UUID: 'org',
@@ -1961,4 +1963,31 @@ test('a project colored gray gets gray glyphs', { options: { ...FR.options, proj
     expect(r).toBe(g)
     expect(g).toBe(b)
   }
+})
+
+test('the board asks for a restart when a newer version waits in the mod folder', FR, async ($, on) => {
+  mockEngine(on, { filters: { status: 'aucun', flags: {} } }, {}, { CLAUDE_CODE_PLUGIN_DIRS: '~/src/docket' })
+  const manifest = '/Users/me/src/docket/.claude-plugin/plugin.json'
+  let version = '9.9.9'
+  on('fs.stat', (_, e) => {
+    if (e.path !== manifest) {
+      throw new Error('missing')
+    }
+
+    return { value: { kind: 'file' as const, size: 1, mtimeMs: version.length + version.charCodeAt(0), isLink: false } }
+  })
+  const write = () => disk.set(manifest, JSON.stringify({ name: 'docket', version }))
+  write()
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: '🔄 Docket 9.9.9 est prêt : relance l’app pour l’utiliser.' })).toBeTruthy()
+
+  // Once the folder holds the running version again, the line leaves.
+  version = PANE.props.title.replace('🏷️ Docket ', '')
+  write()
+  await $.command.run({ command: 'docket', args: '' })
+  expect(await ui.find({ type: 'Text', text: /relance l’app/ })).toBeFalsy()
+  await ui.unmount()
 })

@@ -103,6 +103,7 @@ declare module 'claude-code' {
       wideFilters: BoardFilters
       // Bumped on each automatic refresh while the board is shown, so its ages redraw.
       tick: number
+      newerVersion: string | null
     }
   }
 }

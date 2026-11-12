@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.14'
+const VERSION = '0.12.15'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -48,6 +48,7 @@ const TEXTS = {
     commandDescription: (statusIds: string, flagIds: string) =>
       `Status: ${statusIds}; ${flagIds} [yes|no]; note <text>; alone, opens the board`,
     boardOpened: 'Status board opened.',
+    restartForVersion: (version: string) => `🔄 Docket ${version} is ready: restart the app to use it.`,
     dashboard: '📊 Dashboard',
     dashboardOn: 'This conversation is now a dashboard: it leaves the board, and its board opens by itself here.',
     dashboardOff: 'This conversation is no longer a dashboard.',
@@ -139,6 +140,7 @@ const TEXTS = {
     commandDescription: (statusIds: string, flagIds: string) =>
       `Statut : ${statusIds}; ${flagIds} [oui|non]; note <texte>; seul, ouvre le tableau`,
     boardOpened: 'Tableau des statuts ouvert.',
+    restartForVersion: (version: string) => `🔄 Docket ${version} est prêt : relance l’app pour l’utiliser.`,
     dashboard: '📊 Tableau de bord',
     dashboardOn: 'Cette conversation est maintenant un tableau de bord : elle quitte le board, et son board s’ouvre tout seul ici.',
     dashboardOff: 'Cette conversation n’est plus un tableau de bord.',
@@ -334,6 +336,9 @@ const statusFilter = atom(
   'tous' as StatusFilter,
 )
 const tick = atom({ plugin: 'docket', key: 'tick' } as const, 0)
+// The version found in the mod's folder when it differs from the one running: an
+// update pulled after the app loaded the mod, which a restart of the app brings in.
+const newerVersion = atom({ plugin: 'docket', key: 'newerVersion' } as const, null as string | null)
 const flagFilters = atom({ plugin: 'docket', key: 'flagFilters' } as const, {})
 const periodFilter = atom({ plugin: 'docket', key: 'period' } as const, 'tout' as Period)
 // A wide board keeps filters of its own, apart from the side panel's.
@@ -687,6 +692,7 @@ export const register: Register = (on, options) => {
     const rows = buildAllRows(await read($, desktop), await read($, all), await read($, remote))
     const git = await read($, gitStates)
     await read($, tick)
+    const waitingVersion = await read($, newerVersion)
     // A wide board reads and saves its own filters; the side panel keeps its own.
     const isWideBoard = columns >= BOARD_COLUMNS_MIN
     const wideView = isWideBoard ? await read($, wideFilters) : undefined
@@ -1105,6 +1111,11 @@ export const register: Register = (on, options) => {
     ))
     return (
       <Box flexDirection="column" gap={1}>
+        {waitingVersion !== null && (
+          <Box key="restart">
+            <Text color="warning">{t.restartForVersion(waitingVersion)}</Text>
+          </Box>
+        )}
         <Box key="filters" flexDirection="column" borderStyle="single" borderColor="promptBorder" paddingX={1}>
           {'Input' in elements && (
             <Box key="search-row" flexDirection="column" alignItems="stretch" width="100%">
@@ -1574,6 +1585,43 @@ async function alertChanges($: EngineInterface): Promise<void> {
   }
 }
 
+// Looks in the folders the app loads plugins from (CLAUDE_CODE_PLUGIN_DIRS) for this
+// mod's manifest; a version there other than the running one waits for a restart.
+let manifestSeen: { path: string; mtimeMs: number; version: string | null } | undefined
+
+async function checkNewerVersion($: EngineInterface): Promise<void> {
+  const dirs = (await $.env.get('CLAUDE_CODE_PLUGIN_DIRS')) ?? ''
+  const home = (await $.env.get('HOME')) ?? ''
+  let found: string | null = null
+  for (const dir of dirs.split(/[,;\n]|:(?![\\/])/).map(one => one.trim()).filter(one => one !== '')) {
+    const path = `${dir.replace(/^~(?=\/|$)/, home)}/.claude-plugin/plugin.json`
+    const stat = await $.fs.stat(path).catch(() => undefined)
+    if (stat === undefined) {
+      continue
+    }
+    if (manifestSeen?.path !== path || manifestSeen.mtimeMs !== stat.mtimeMs) {
+      const text = await $.fs.read(path).catch(() => null)
+      let version: string | null = null
+      try {
+        const manifest = JSON.parse(text ?? '') as { name?: unknown; version?: unknown }
+        if (manifest.name === 'docket' && typeof manifest.version === 'string' && /^[\w.-]{1,20}$/.test(manifest.version)) {
+          version = manifest.version
+        }
+      } catch {
+        version = null
+      }
+      manifestSeen = { path, mtimeMs: stat.mtimeMs, version }
+    }
+    if (manifestSeen.version !== null) {
+      found = manifestSeen.version === VERSION ? null : manifestSeen.version
+      break
+    }
+  }
+  if ((await read($, newerVersion)) !== found) {
+    await update($, newerVersion, () => found)
+  }
+}
+
 // A dashboard opens its board by itself.
 async function openDashboard($: EngineInterface): Promise<void> {
   if ((await read($, current))?.isDashboard !== true) {
@@ -1599,6 +1647,7 @@ function stopRunningRefresh(): void {
 
 async function refreshAll($: EngineInterface): Promise<void> {
   lastRefreshAt = await $.clock.now()
+  await checkNewerVersion($).catch(() => undefined)
   await loadFilters($)
   const sessions = await scanDesktop($)
   const byHost = new Map<string, Entry>()
