@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.13'
+const VERSION = '0.12.14'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -116,7 +116,7 @@ const TEXTS = {
     wake: 'Wake up',
     showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 🌙 Snoozed (${count})`,
     local: '🏠 Local',
-    machine: (name: string) => `💻 ${name}`,
+    machine: (name: string) => `📡 ${name}`,
     machineFacts: (version: string, age: string) => `${version} · ${age}`,
     otherVersion: (version: string) => `⚠️ ${version}`,
     snoozes: {
@@ -207,7 +207,7 @@ const TEXTS = {
     wake: 'Réveiller',
     showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 🌙 En snooze (${count})`,
     local: '🏠 Local',
-    machine: (name: string) => `💻 ${name}`,
+    machine: (name: string) => `📡 ${name}`,
     machineFacts: (version: string, age: string) => `${version} · ${age}`,
     otherVersion: (version: string) => `⚠️ ${version}`,
     snoozes: {

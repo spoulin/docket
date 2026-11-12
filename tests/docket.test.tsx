@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.13',
+    title: '🏷️ Docket 0.12.14',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1490,7 +1490,7 @@ test('the board shows the conversations another computer shared', SYNC, async ($
   // In its status group, named after its computer, with that computer's git and a spinner.
   expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
   // Under its computer's name, apart from this computer's conversations, under "Local".
-  expect(await ui.find({ type: 'Text', text: '💻 Bureau' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: '📡 Bureau' })).toBeTruthy()
   expect(await ui.find({ type: 'Box', key: 'place-en-attente-Bureau' } as never)).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^api$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
@@ -1675,11 +1675,11 @@ test('a group with conversations of several computers shows this one first, unde
   // Positions in the tree, past the group's flattened text.
   const at = (text: string) => group.indexOf(text, group.indexOf('"children"'))
   expect(at('🏠 Local')).toBeGreaterThan(-1)
-  expect(at('💻 Bureau')).toBeGreaterThan(at('🏠 Local'))
-  expect(at('Loin')).toBeGreaterThan(at('💻 Bureau'))
+  expect(at('📡 Bureau')).toBeGreaterThan(at('🏠 Local'))
+  expect(at('Loin')).toBeGreaterThan(at('📡 Bureau'))
   // The rule closing the Local section's last card comes before the other computer's name.
   expect(at('separator-other')).toBeGreaterThan(at('🏠 Local'))
-  expect(at('separator-other')).toBeLessThan(at('💻 Bureau'))
+  expect(at('separator-other')).toBeLessThan(at('📡 Bureau'))
   // The last card of the group gets its rule too, before the next heading.
   expect(at('separator-far')).toBeGreaterThan(at('Loin'))
   await ui.unmount()

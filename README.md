@@ -34,7 +34,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - `/docket dashboard` makes the current conversation a dashboard: one kept to look at the board, which opens there by itself.
   It leaves the board, the band's count and the sync, and its band shows `📊 Dashboard` rather than a status.
   While its board runs, a toast says when a conversation starts to wait on you (`⚠️ Fix the build waits on you`), and when Claude is done in one (`✻ Fix the build is done`).
-- With a sync folder, the board also shows the conversations of your other computers, named after them (`💻 Office`): see [Sharing between computers](#sharing-between-computers).
+- With a sync folder, the board also shows the conversations of your other computers, named after them (`📡 Office`): see [Sharing between computers](#sharing-between-computers).
 
 > [!WARNING]
 > In the desktop app, the board reads the app's own conversation records and opens conversations through the app's own links.
@@ -208,8 +208,8 @@ Set `syncFolder` to the same synced folder on each computer, for example in iClo
 ```
 
 - Each computer writes one file of its own there, `machines/<id>.json`: its conversations, their statuses, flags and notes, and its git signs. It reads the others' files and never writes them.
-- The board shows the other computers' conversations in their groups, with their spinner and git signs. Where a group holds conversations of several computers, this computer's come first under `🏠 Local`, then each other computer's under its name (`💻 Office`).
-  Next to that name, the mod's version there, marked `⚠️` when it is not this computer's, and when that computer last wrote its file (`💻 Office 0.12.8 · 2 min ago`): it writes again at least every 5 minutes while one of its conversations is open, so a computer left behind or gone quiet shows at once.
+- The board shows the other computers' conversations in their groups, with their spinner and git signs. Where a group holds conversations of several computers, this computer's come first under `🏠 Local`, then each other computer's under its name (`📡 Office`).
+  Next to that name, the mod's version there, marked `⚠️` when it is not this computer's, and when that computer last wrote its file (`📡 Office 0.12.8 · 2 min ago`): it writes again at least every 5 minutes while one of its conversations is open, so a computer left behind or gone quiet shows at once.
 - A click opens one in the app through Remote Control, when Remote Control is on for it; otherwise its title is plain text.
 - Opened this way, it shows neither the band nor the board, which run on its own computer; `/docket` works there and sets its status.
 - A conversation's status is set where it runs, in its band or with `/docket`.
