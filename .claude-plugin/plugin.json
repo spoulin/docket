@@ -1,6 +1,6 @@
 {
   "name": "docket",
-  "version": "0.12.12",
+  "version": "0.12.13",
   "description": "A status and remote and personal flags for each conversation, with a board of all of them",
   "author": {
     "name": "spoulin",

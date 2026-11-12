@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.12'
+const VERSION = '0.12.13'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -2257,7 +2257,7 @@ async function applyTranscript(
     known = {
       mtimeMs: stat.mtimeMs,
       isRunning: text === null ? undefined : findTurnState(text),
-      ask: text === null ? undefined : findClosingAsk(text),
+      ask: text === null ? undefined : (findPendingQuestion(text) ?? findClosingAsk(text)),
     }
     transcripts.set(path, known)
   }
@@ -2275,6 +2275,54 @@ async function applyTranscript(
   }
 
   return ended
+}
+
+// The question Claude asked through a question or plan card that still waits on an
+// answer: the transcript's last line is that tool call, with no result after it.
+// The turn stays open in the transcript, but nothing runs until the person answers.
+const ASKING_TOOLS: Record<string, (input: Record<string, unknown>) => string> = {
+  AskUserQuestion: input => {
+    const first = (Array.isArray(input.questions) ? input.questions[0] : undefined) as
+      | { question?: unknown }
+      | undefined
+    return typeof first?.question === 'string' ? first.question : ''
+  },
+  ExitPlanMode: () => 'Plan',
+}
+
+// The question an assistant line asks through such a card, if any.
+function findAskedQuestion(entry: Record<string, unknown>): string | undefined {
+  const content = ((entry.message ?? {}) as Record<string, unknown>).content
+  for (const part of Array.isArray(content) ? content : []) {
+    const call = part as { type?: unknown; name?: unknown; input?: unknown }
+    const asking = typeof call.name === 'string' ? ASKING_TOOLS[call.name] : undefined
+    if (call.type === 'tool_use' && asking !== undefined) {
+      const ask = asking((call.input ?? {}) as Record<string, unknown>).replace(/\s+/g, ' ').trim()
+      return ask === '' ? 'Question' : ask
+    }
+  }
+
+  return undefined
+}
+
+function findPendingQuestion(text: string): string | undefined {
+  const lines = text.split('\n')
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry: Record<string, unknown>
+    try {
+      entry = JSON.parse(lines[index] ?? '') as Record<string, unknown>
+    } catch {
+      continue
+    }
+    if (entry.type === 'user' || entry.type === 'system') {
+      return undefined
+    }
+    if (entry.type === 'assistant') {
+      return findAskedQuestion(entry)
+    }
+  }
+
+  return undefined
 }
 
 // The question the last turn closed on in the next-step box (its wrap-up), if any.
@@ -2362,6 +2410,9 @@ function findTurnState(text: string): boolean | undefined {
       continue
     }
     if (entry.type === 'assistant') {
+      if (findAskedQuestion(entry) !== undefined) {
+        return false
+      }
       const reason = message.stop_reason
       return !(reason === 'end_turn' || reason === 'stop_sequence' || reason === 'max_tokens' || reason === 'refusal')
     }

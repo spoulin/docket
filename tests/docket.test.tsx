@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.12',
+    title: '🏷️ Docket 0.12.13',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1918,6 +1918,25 @@ test('a turn that closes on a question in the next-step box waits on the person'
   writtenAt = 3_599_000
   await clock.advance(30_000)
   expect(await ui.find({ type: 'Box', key: 'your-turn' })).toBeFalsy()
+
+  // A question card left open mid-turn waits on the person too: the turn does not run.
+  text = [
+    text,
+    line({ type: 'user', message: { content: 'Quel fond ?' } }),
+    line({ type: 'assistant', message: { stop_reason: 'tool_use', content: [{ type: 'thinking' }] } }),
+    line({
+      type: 'assistant',
+      message: {
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', name: 'AskUserQuestion', input: { questions: [{ question: 'Quel écran ?' }] } }],
+      },
+    }),
+    line({ type: 'last-prompt' }),
+  ].join('\n')
+  writtenAt = 3_600_000
+  await clock.advance(30_000)
+  const asked = JSON.stringify(await ui.find({ type: 'Box', key: 'your-turn' }))
+  expect(asked).toContain('Quel écran ?')
   await ui.unmount()
 })
 
