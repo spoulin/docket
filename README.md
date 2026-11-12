@@ -1,5 +1,7 @@
 # 🏷️ docket
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/stephanepoulin)
+
 A [Claude Code](https://claude.com/claude-code) mod that keeps a docket of your conversations.
 Each conversation gets a status and yes-or-no flags, and a board lists all of them.
 
@@ -237,3 +239,11 @@ The app loads the mod when it starts. When that folder holds another version tha
 ## License
 
 [MIT](LICENSE)
+
+## Support
+
+If docket keeps your conversations in line (and your head clear), you can buy me a coffee.
+
+<a href="https://buymeacoffee.com/stephanepoulin"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" height="40"></a>
+
+Made by [Stéphane Poulin](https://www.stephanepoulin.com).
