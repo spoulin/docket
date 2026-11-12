@@ -3,11 +3,11 @@
 A [Claude Code](https://claude.com/claude-code) mod that keeps a docket of your conversations.
 Each conversation gets a status and yes-or-no flags, and a board lists all of them.
 
-- Statuses: in progress, waiting, done, recycled, or your own list.
+- Statuses: on the stove, waiting, done, recycled, or your own list.
 - Flags: remote, and personal (as opposed to work), or your own list.
 - A band above the prompt sets the status and the flags (check boxes) of the current conversation.
 - The board groups every conversation by status, with a filter on status, one per flag, and a period (1 hour, today, 7 days…).
-- The status filter checks one group or several (in progress + waiting); one stays checked. "No status" is unchecked at first.
+- The status filter checks one group or several (on the stove + waiting); one stays checked. "No status" is unchecked at first.
 - A search field keeps the conversations whose title, folder, ticket or note holds every word typed. While it holds text, the filters and the ↻ button hide and stop filtering; they come back as they were once it is cleared.
 - In the desktop app, each row is a card: the sidebar title; the folder and flags; the git signs on a line of their own; then, across the card, the note and the last turn summary in italics; last, the glyph with the pull request above the age at the left, and 🌙 at the right.
 - A click on a title opens that conversation.
@@ -116,7 +116,7 @@ A new conversation reads them.
 | Option | What it does | Default |
 | --- | --- | --- |
 | `language` | `en` or `fr`. | `en` |
-| `statuses` | A JSON list of the statuses, in order. | in progress, waiting, done, recycled |
+| `statuses` | A JSON list of the statuses, in order. | on the stove, waiting, done, recycled |
 | `flags` | A JSON list of yes-or-no flags. `[]` for none. | remote, personal |
 | `statusControl` | How the band shows the status: `buttons`, `dropdown`, `cycle` (one button that moves to the next status), or `auto`. | `auto`: buttons up to 5 statuses, a dropdown past that |
 | `filters` | A JSON list of the board's filters, in order: `status`, `period` and flag ids. A filter left out is hidden. | status, period, then every flag |
@@ -140,7 +140,7 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 
 - `id`: letters, digits and dashes. The store keeps it, so change a label freely, not an id.
 - `tous`, `aucun`, `a-toi`, `note` and `dashboard` are taken by the board and the note command.
-- `label`: what the band and the board show. It may hold an emoji: `"🔨 In progress"`.
+- `label`: what the band and the board show. It may hold an emoji: `"🔥 On the stove"`.
 - A default status listed by its id alone (`{ "id": "termine" }`) keeps its translated label: list the defaults in another order this way.
 - The first status is the one a new conversation gets.
 - A conversation whose status you remove shows under "No status". Add the id back and it returns.

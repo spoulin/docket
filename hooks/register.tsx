@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.10'
+const VERSION = '0.12.11'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -67,7 +67,7 @@ const TEXTS = {
     saveFailed: 'The conversation status could not be saved.',
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
-      { id: 'en-cours', label: 'In progress', aliases: ['in-progress', 'progress', 'encours', 'cours'] },
+      { id: 'en-cours', label: 'On the stove', aliases: ['stove', 'feu', 'in-progress', 'progress', 'encours', 'cours'] },
       { id: 'en-attente', label: 'Waiting', aliases: ['waiting', 'attente'] },
       { id: 'termine', label: 'Done', aliases: ['done', 'fini'] },
       { id: 'recycle', label: 'Recycled', aliases: ['recycled'] },
@@ -158,7 +158,7 @@ const TEXTS = {
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
-      { id: 'en-cours', label: 'En cours', aliases: ['in-progress', 'progress', 'encours', 'cours'] },
+      { id: 'en-cours', label: 'Sur le feu', aliases: ['feu', 'stove', 'in-progress', 'progress', 'encours', 'cours'] },
       { id: 'en-attente', label: 'En attente', aliases: ['waiting', 'attente'] },
       { id: 'termine', label: 'Terminé', aliases: ['done', 'fini'] },
       { id: 'recycle', label: 'Recyclé', aliases: ['recycled'] },

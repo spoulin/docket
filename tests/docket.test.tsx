@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.10',
+    title: '🏷️ Docket 0.12.11',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -242,7 +242,7 @@ test('the band shows before the first message, with nothing selected', CYCLE, as
     dimColor: true,
   })
   await ui.press({ key: 'status' })
-  expect((await ui.find({ type: 'Button', key: 'status' }))?.props.label).toBe('En cours')
+  expect((await ui.find({ type: 'Button', key: 'status' }))?.props.label).toBe('Sur le feu')
   expect(store.get('host:local_here')).toMatchObject({ status: 'en-cours' })
   await ui.press({ key: 'status' })
   expect(store.get('host:local_here')).toMatchObject({ status: 'en-attente' })
@@ -652,7 +652,7 @@ test('with no options the mod speaks English and links no ticket', async ($, on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect((await band.find({ type: 'Button', key: 'status-en-cours' }))?.props.label).toBe(
-    'In progress',
+    'On the stove',
   )
   expect((await band.find({ type: 'Button', key: 'flag-perso' }))?.props.label).toBe('☐ Personal')
   await band.unmount()
@@ -978,7 +978,7 @@ test(
     const options = (await ui.find({ type: 'Select', key: 'status-filter' }))?.props.options ?? []
     expect(options.map(option => option.label)).toEqual([
       'Tous',
-      '☑ En cours (0)',
+      '☑ Sur le feu (0)',
       '☑ En attente (0)',
       '☑ Recyclé (0)',
       '☑ Terminé (0)',
