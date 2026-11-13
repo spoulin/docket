@@ -140,8 +140,20 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 ]
 ```
 
+The default statuses, in their order:
+
+| id | English label | French label |
+| --- | --- | --- |
+| `en-cours` | On the stove | Sur le feu |
+| `en-attente` | Waiting | En attente |
+| `termine` | Done | Terminé |
+| `recycle` | Recycled | Recyclé |
+
+Their ids are French and stay so in English too: the store keeps the ids, and changing them would lose the statuses already set.
+`/docket` takes an id, a label, or an English word: `stove`, `waiting`, `done`, `recycled`.
+
 - `id`: letters, digits and dashes. The store keeps it, so change a label freely, not an id.
-- `tous`, `aucun`, `a-toi`, `note` and `dashboard` are taken by the board and the note command.
+- `tous` (all), `aucun` (none), `a-toi` (Your turn), `note` and `dashboard` are used inside the board and by `/docket`: a status cannot take them.
 - `label`: what the band and the board show. It may hold an emoji: `"🔥 On the stove"`.
 - A default status listed by its id alone (`{ "id": "termine" }`) keeps its translated label: list the defaults in another order this way.
 - The first status is the one a new conversation gets.
@@ -157,7 +169,14 @@ Each option that takes JSON takes it as a string: in `settings.json`, escape its
 ]
 ```
 
-- `id`: letters, digits and dashes. It cannot be a status id, nor `tous`, `aucun`, `a-toi`, `note`, `dashboard`, `status` or `period`.
+The default flags:
+
+| id | Filter | Yes | No |
+| --- | --- | --- | --- |
+| `remote` | Remote | Remote | Not remote |
+| `perso` | Kind | Personal | Work |
+
+- `id`: letters, digits and dashes. It cannot be a status id, nor one of the words the board uses (`tous`, `aucun`, `a-toi`, `note`, `dashboard`), nor `status` or `period`.
 - `label`: the name of the flag's filter on the board.
 - `on` (optional): the flag's name next to its check box in the band, its "yes" in the filter, and its word in the row. Default: the label.
 - `off` (optional): the filter's "no". Default: "Not" and the label.

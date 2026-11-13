@@ -35,7 +35,7 @@
     "statuses": {
       "type": "string",
       "title": "Statuses",
-      "description": "JSON list of the statuses, in order: [{\"id\": \"todo\", \"label\": \"To do\"}, {\"id\": \"doing\", \"label\": \"Doing\"}]. The first one is given on a conversation's first message. An id is letters, digits and dashes. Empty: in progress, waiting, done, recycled.",
+      "description": "JSON list of the statuses, in order: [{\"id\": \"todo\", \"label\": \"To do\"}, {\"id\": \"doing\", \"label\": \"Doing\"}]. The first one is given on a conversation's first message. An id is letters, digits and dashes. Empty: on the stove (en-cours), waiting (en-attente), done (termine), recycled (recycle).",
       "default": ""
     },
     "flags": {
