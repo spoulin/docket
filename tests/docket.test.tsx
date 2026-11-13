@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.17',
+    title: '🏷️ Docket 0.12.18',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1944,6 +1944,22 @@ test('a turn that closes on a question in the next-step box waits on the person'
   await clock.advance(30_000)
   const asked = JSON.stringify(await ui.find({ type: 'Box', key: 'your-turn' }))
   expect(asked).toContain('Quel écran ?')
+
+  // A browser call with no result for a while waits on the site permission it asks.
+  text = [
+    text,
+    line({ type: 'user', message: { content: [{ type: 'tool_result' }] } }),
+    line({ type: 'user', message: { content: 'Lis la page' } }),
+    line({
+      type: 'assistant',
+      message: { stop_reason: 'tool_use', content: [{ type: 'tool_use', name: 'mcp__Claude_Browser__get_page_text', input: {} }] },
+    }),
+  ].join('\n')
+  writtenAt = 3_660_000
+  await clock.advance(30_000)
+  expect(await ui.find({ type: 'Box', key: 'your-turn' })).toBeFalsy()
+  await clock.advance(10_000)
+  expect(JSON.stringify(await ui.find({ type: 'Box', key: 'your-turn' }))).toContain('Le navigateur attend ta permission')
   await ui.unmount()
 })
 

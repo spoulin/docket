@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.17'
+const VERSION = '0.12.18'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -67,6 +67,7 @@ const TEXTS = {
     runningGroup: (count: number) => `✻ Clauding (${count})`,
     noYourTurn: ['Nothing for you', 'Coffee time ☕', 'Inbox zero'],
     noRunning: ['Claude’s on break', 'Claude’s taking it easy', 'Claude’s bored'],
+    browserPermission: '🌐 The browser asks for your permission',
     saveFailed: 'The conversation status could not be saved.',
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
@@ -161,6 +162,7 @@ const TEXTS = {
     runningGroup: (count: number) => `✻ Clauding (${count})`,
     noYourTurn: ['Rien pour toi', 'L’heure du café ☕', 'Inbox zéro'],
     noRunning: ['Claude est en pause', 'Claude prend ça relax', 'Claude s’ennuie'],
+    browserPermission: '🌐 Le navigateur attend ta permission',
     saveFailed: "Le statut de la conversation n'a pas pu être enregistré.",
     paneTitle: `🏷️ Docket ${VERSION}`,
     statuses: [
@@ -2317,8 +2319,14 @@ const TRANSCRIPT_WINDOW_MS = 12 * HOUR_MS
 const TRANSCRIPT_TAIL_BYTES = 200_000
 const transcripts = new Map<
   string,
-  { mtimeMs: number; isRunning: boolean | undefined; ask: string | undefined }
+  { mtimeMs: number; isRunning: boolean | undefined; ask: string | undefined; isBrowserCall: boolean }
 >()
+
+// A browser tool asks the person before it reads or acts on a site it has no
+// permission for, and the transcript shows only the call, as if it ran. Browser
+// calls answer in seconds, so one with no result for this long waits on the person.
+const BROWSER_PERMISSION_MS = 30_000
+const BROWSER_TOOL = /^mcp__(?:remote-devices__)?(?:Claude_Browser|claude-in-chrome)__/
 
 async function applyTranscript(
   $: EngineInterface,
@@ -2329,7 +2337,8 @@ async function applyTranscript(
     return session
   }
   const home = await $.env.get('HOME')
-  if (home === undefined || (await $.clock.now()) - session.lastActivityAt > TRANSCRIPT_WINDOW_MS) {
+  const now = await $.clock.now()
+  if (home === undefined || now - session.lastActivityAt > TRANSCRIPT_WINDOW_MS) {
     return session
   }
   const path = `${home}/.claude/projects/${cwd.replace(/[^A-Za-z0-9]/g, '-')}/${session.cliSessionId}.jsonl`
@@ -2344,6 +2353,7 @@ async function applyTranscript(
       mtimeMs: stat.mtimeMs,
       isRunning: text === null ? undefined : findTurnState(text),
       ask: text === null ? undefined : (findPendingQuestion(text) ?? findClosingAsk(text)),
+      isBrowserCall: text !== null && findPendingCall(text)?.some(name => BROWSER_TOOL.test(name)) === true,
     }
     transcripts.set(path, known)
   }
@@ -2351,6 +2361,9 @@ async function applyTranscript(
     return session
   }
   const { turnStartedAt: _dropped, writtenAt: _old, ...ended } = session
+  if (known.isRunning && known.isBrowserCall && now - stat.mtimeMs > BROWSER_PERMISSION_MS) {
+    return { ...ended, attention: 'blocked', summary: config.texts.browserPermission }
+  }
   if (known.isRunning) {
     return { ...ended, turnStartedAt: session.turnStartedAt ?? session.lastActivityAt, writtenAt: stat.mtimeMs }
   }
@@ -2385,6 +2398,31 @@ function findAskedQuestion(entry: Record<string, unknown>): string | undefined {
     if (call.type === 'tool_use' && asking !== undefined) {
       const ask = asking((call.input ?? {}) as Record<string, unknown>).replace(/\s+/g, ' ').trim()
       return ask === '' ? 'Question' : ask
+    }
+  }
+
+  return undefined
+}
+
+// The tools the transcript's last assistant line calls, when no result follows it.
+function findPendingCall(text: string): string[] | undefined {
+  const lines = text.split('\n')
+  for (let index = lines.length - 1; index >= 0; index--) {
+    let entry: Record<string, unknown>
+    try {
+      entry = JSON.parse(lines[index] ?? '') as Record<string, unknown>
+    } catch {
+      continue
+    }
+    if (entry.type === 'user' || entry.type === 'system') {
+      return undefined
+    }
+    if (entry.type === 'assistant') {
+      const content = ((entry.message ?? {}) as Record<string, unknown>).content
+      return (Array.isArray(content) ? content : [])
+        .map(part => part as { type?: unknown; name?: unknown })
+        .filter(part => part.type === 'tool_use' && typeof part.name === 'string')
+        .map(part => part.name as string)
     }
   }
 

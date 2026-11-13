@@ -18,6 +18,7 @@ Each conversation gets a status and yes-or-no flags, and a board lists all of th
 - The band counts the other conversations that wait on you (⚠️ 2); 🏷️ opens the board.
 - A first group, `🫵 Your turn`, between the filters and the other groups, lists what waits on you, with what each conversation asks. Filters leave it alone, and its conversations are not repeated in the groups below.
   A conversation counts as waiting when the app's own summary of its last turn says so, or when that turn closed on a question in the next-step box (`Does the size suit you?`), which the app's summary sometimes misses. A question or plan card still open counts too: the turn waits on your answer, so the conversation is not under Clauding.
+  So does a browser call with no result after 30 seconds: the browser asks you to allow a site (`🌐 The browser asks for your permission`). Other permission prompts still look like Claude at work.
 - A short note per conversation says why it waits or what comes next.
 - 🌙, at the bottom right of each card, snoozes a conversation for 5, 10, 15 or 30 minutes, an hour or a day: whatever its status, it leaves the board, the Your turn group and the band's count, and comes back once the time is up.
   The search still finds it, with the time left (`🌙 25 min`); its 🌙 then offers to wake it up now.
