@@ -88,6 +88,7 @@ To update the mod later: `claude plugin marketplace update docket`, then `claude
 - `/docket <flag> [yes|no]` sets a flag: `/docket remote yes`. With no value, it toggles.
 - `/docket dashboard [yes|no]` makes the conversation a dashboard, or a plain one again. With no value, it toggles.
 - `/docket note <text>` writes the conversation's note, shown in the band and on the board. `/docket note` alone clears it.
+- `/docket snooze all [5m|10m|15m|30m|1h|1d]` snoozes every conversation on the board, for a day by default, on every computer: to clear it for a while, a demo say. `/docket wake all` brings them back.
 - The band above the prompt does the same, with buttons, a dropdown or one cycling button (see `statusControl`).
 
 A conversation gets the first status when you send its first message, a slash command such as a skill included.
@@ -154,7 +155,7 @@ Their ids are French and stay so in English too: the store keeps the ids, and ch
 `/docket` takes an id, a label, or an English word: `stove`, `waiting`, `done`, `recycled`.
 
 - `id`: letters, digits and dashes. The store keeps it, so change a label freely, not an id.
-- `tous` (all), `aucun` (none), `a-toi` (Your turn), `note` and `dashboard` are used inside the board and by `/docket`: a status cannot take them.
+- `tous` (all), `aucun` (none), `a-toi` (Your turn), `note`, `dashboard`, `snooze` and `wake` are used inside the board and by `/docket`: a status cannot take them.
 - `label`: what the band and the board show. It may hold an emoji: `"🔥 On the stove"`.
 - A default status listed by its id alone (`{ "id": "termine" }`) keeps its translated label: list the defaults in another order this way.
 - The first status is the one a new conversation gets.
@@ -177,7 +178,7 @@ The default flags:
 | `remote` | Remote | Remote | Not remote |
 | `perso` | Kind | Personal | Work |
 
-- `id`: letters, digits and dashes. It cannot be a status id, nor one of the words the board uses (`tous`, `aucun`, `a-toi`, `note`, `dashboard`), nor `status` or `period`.
+- `id`: letters, digits and dashes. It cannot be a status id, nor one of the words the board uses (`tous`, `aucun`, `a-toi`, `note`, `dashboard`, `snooze`, `wake`), nor `status` or `period`.
 - `label`: the name of the flag's filter on the board.
 - `on` (optional): the flag's name next to its check box in the band, its "yes" in the filter, and its word in the row. Default: the label.
 - `off` (optional): the filter's "no". Default: "Not" and the label.

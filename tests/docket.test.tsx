@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.18',
+    title: '🏷️ Docket 0.12.19',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1602,6 +1602,32 @@ test('a snooze hides a conversation for a while, and the search still finds it',
   await ui.input({ key: 'search', text: '', kind: 'change' })
   expect(await ui.find({ type: 'Markdown', key: 'open-a' })).toBeTruthy()
   expect(store.get('snoozes')).toMatchObject({ local_a: { until: 0 } })
+  await ui.unmount()
+})
+
+test('/docket snooze all clears the board, and /docket wake all brings it back', FR, async ($, on) => {
+  mockEngine(
+    on,
+    { filters: { status: 'tous', flags: {} } },
+    {
+      'local_a.json': desktopRecord('a', 'Première', false, {
+        postTurnSummary: { status_category: 'blocked', needs_action: 'Choisis une option' },
+      }),
+      'local_b.json': desktopRecord('b', 'Deuxième'),
+    },
+  )
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect((await $.command.run({ command: 'docket', args: 'snooze all 2h' }))?.text).toContain('Durée inconnue')
+  expect((await $.command.run({ command: 'docket', args: 'snooze all' }))?.text).toBe(
+    '🌙 2 conversations mises en snooze pour 1 jour.',
+  )
+  await $.command.run({ command: 'docket', args: '' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Box', key: 'your-turn' } as never)).toBeFalsy()
+
+  expect((await $.command.run({ command: 'docket', args: 'wake all' }))?.text).toBe('2 conversations réveillées.')
+  expect(JSON.stringify(await ui.find({ type: 'Box', key: 'your-turn' } as never))).toContain('Première')
   await ui.unmount()
 })
 

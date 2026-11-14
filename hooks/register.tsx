@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.18'
+const VERSION = '0.12.19'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -46,7 +46,7 @@ const RUNNING_REFRESH_MS = 5_000
 const TEXTS = {
   en: {
     commandDescription: (statusIds: string, flagIds: string) =>
-      `Status: ${statusIds}; ${flagIds} [yes|no]; note <text>; alone, opens the board`,
+      `Status: ${statusIds}; ${flagIds} [yes|no]; note <text>; snooze all [1h|1d]; wake all; alone, opens the board`,
     boardOpened: 'Status board opened.',
     restartForVersion: (version: string) => `🔄 Docket ${version} is ready: restart the app to use it.`,
     dashboard: '📊 Dashboard',
@@ -62,6 +62,10 @@ const TEXTS = {
     flagSet: (label: string) => `${label}.`,
     noteSaved: 'Note saved.',
     noteCleared: 'Note cleared.',
+    snoozedAll: (count: number, length: string) =>
+      `🌙 ${count} ${count === 1 ? 'conversation' : 'conversations'} snoozed for ${length}.`,
+    wokeAll: (count: number) => `${count} ${count === 1 ? 'conversation' : 'conversations'} woken up.`,
+    unknownSnooze: (value: string, ids: string) => `Unknown length "${value}". Values: ${ids}.`,
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `🫵 Your turn (${count})`,
     runningGroup: (count: number) => `✻ Clauding (${count})`,
@@ -141,7 +145,7 @@ const TEXTS = {
   },
   fr: {
     commandDescription: (statusIds: string, flagIds: string) =>
-      `Statut : ${statusIds}; ${flagIds} [oui|non]; note <texte>; seul, ouvre le tableau`,
+      `Statut : ${statusIds}; ${flagIds} [oui|non]; note <texte>; snooze all [1h|1d]; wake all; seul, ouvre le tableau`,
     boardOpened: 'Tableau des statuts ouvert.',
     restartForVersion: (version: string) => `🔄 Docket ${version} est prêt : relance l’app pour l’utiliser.`,
     dashboard: '📊 Tableau de bord',
@@ -157,6 +161,10 @@ const TEXTS = {
     flagSet: (label: string) => `${label}.`,
     noteSaved: 'Note enregistrée.',
     noteCleared: 'Note effacée.',
+    snoozedAll: (count: number, length: string) =>
+      `🌙 ${count} ${count === 1 ? 'conversation mise' : 'conversations mises'} en snooze pour ${length}.`,
+    wokeAll: (count: number) => `${count} ${count === 1 ? 'conversation réveillée' : 'conversations réveillées'}.`,
+    unknownSnooze: (value: string, ids: string) => `Durée inconnue "${value}". Valeurs : ${ids}.`,
     yourTurnBand: (count: number) => `⚠️ ${count}`,
     yourTurn: (count: number) => `🫵 Ton tour (${count})`,
     runningGroup: (count: number) => `✻ Clauding (${count})`,
@@ -297,7 +305,7 @@ const NO_STATUS = 'aucun'
 // Kept out of status and flag ids: 0.4 stored it as a status filter.
 const YOUR_TURN = 'a-toi'
 // Ids the statuses and flags cannot take: the filter's own values, and the note command.
-const RESERVED_IDS: readonly string[] = [ALL_STATUSES, NO_STATUS, YOUR_TURN, 'note', 'dashboard']
+const RESERVED_IDS: readonly string[] = [ALL_STATUSES, NO_STATUS, YOUR_TURN, 'note', 'dashboard', 'snooze', 'wake']
 // The status picker's own values: its summary line, and a group to check or uncheck.
 const STATUS_SUMMARY = 'resume'
 const STATUS_TOGGLE = 'basculer:'
@@ -507,6 +515,24 @@ export const register: Register = (on, options) => {
     }
 
     const [word = '', value, ...rest] = args.split(/\s+/)
+    // Every conversation on the board at once: to clear it for a while, then bring
+    // everything back.
+    if (/^(?:snooze|wake)$/i.test(word) && value?.toLowerCase() === 'all' && rest.length <= 1) {
+      const isWaking = word.toLowerCase() === 'wake'
+      const length = isWaking ? SNOOZE_WAKE : (rest[0]?.toLowerCase() ?? '1d')
+      if (!isWaking && !(length in SNOOZES)) {
+        return { text: t.unknownSnooze(rest[0] ?? '', Object.keys(SNOOZES).join(', ')) }
+      }
+      await refreshAll($)
+      const now = await $.clock.now()
+      const asleep = await read($, snoozes)
+      const keys = buildAllRows(await read($, desktop), await read($, all), await read($, remote))
+        .map(snoozeKey)
+        .filter(key => isSnoozed(asleep, key, now) === isWaking)
+      await snooze($, keys, length)
+
+      return { text: isWaking ? t.wokeAll(keys.length) : t.snoozedAll(keys.length, t.snoozes[length as SnoozeId]) }
+    }
     if (word.toLowerCase() === 'dashboard' && rest.length === 0) {
       const entry = await ensureEntry($)
       const isOn = value === undefined ? entry.isDashboard !== true : parseFlag(value.toLowerCase())
@@ -1422,16 +1448,17 @@ async function loadSnoozes($: EngineInterface): Promise<void> {
   }
 }
 
-// Snoozes a conversation for one of the SNOOZES, or wakes it up.
-async function snooze($: EngineInterface, key: string, choice: string): Promise<void> {
+// Snoozes conversations for one of the SNOOZES, or wakes them up.
+async function snooze($: EngineInterface, key: string | readonly string[], choice: string): Promise<void> {
   const length = SNOOZES[choice as SnoozeId]
   if (choice !== SNOOZE_WAKE && length === undefined) {
     return
   }
   const now = await $.clock.now()
+  const said = { until: length === undefined ? 0 : now + length, setAt: now }
   const next = {
     ...(await readStoredSnoozes($)),
-    [key]: { until: length === undefined ? 0 : now + length, setAt: now },
+    ...Object.fromEntries((typeof key === 'string' ? [key] : key).map(one => [one, said])),
   }
   await $.store.set(SNOOZES_KEY, next)
   await loadSnoozes($)
