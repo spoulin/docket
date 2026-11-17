@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.19',
+    title: '🏷️ Docket 0.12.20',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1491,10 +1491,8 @@ test('the board shows the conversations another computer shared', SYNC, async ($
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // In its status group, named after its computer, with that computer's git and a spinner.
   expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
-  // Under its computer's name, apart from this computer's conversations, under "Local".
-  expect(await ui.find({ type: 'Text', text: '📡 Bureau' })).toBeTruthy()
-  expect(await ui.find({ type: 'Box', key: 'place-en-attente-Bureau' } as never)).toBeTruthy()
-  expect(await ui.find({ type: 'Text', text: /^api$/ })).toBeTruthy()
+  // Its card names its computer, before its folder.
+  expect(await ui.find({ type: 'Text', text: '📡 Bureau · api' })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
   expect(await ui.find({ type: 'Svg', alt: 'Claude travaille' } as never)).toBeTruthy()
   // It opens through Remote Control; it cannot be removed from here.
@@ -1675,7 +1673,7 @@ test('the computers share their snoozes, and the last word on one wins', SYNC, a
   await ui.unmount()
 })
 
-test('a group with conversations of several computers shows this one first, under Local', SYNC, async ($, on) => {
+test('a group mixes the conversations of every computer, newest first', SYNC, async ($, on) => {
   mockEngine(on, { filters: { status: 'tous', flags: {} }, 'session:other': OTHER })
   disk.set(
     `${MACHINES}/far-machine.json`,
@@ -1698,19 +1696,15 @@ test('a group with conversations of several computers shows this one first, unde
   await $.command.run({ command: 'docket', args: '' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   const group = JSON.stringify(await ui.find({ type: 'Box', key: `group-${OTHER.status}` } as never))
-  // The other computer's version, marked as not this one's, and how long ago it wrote.
-  expect(group).toContain('⚠️ 0.1.0 · il y a 10 min')
   // Positions in the tree, past the group's flattened text.
   const at = (text: string) => group.indexOf(text, group.indexOf('"children"'))
-  expect(at('🏠 Local')).toBeGreaterThan(-1)
-  expect(at('📡 Bureau')).toBeGreaterThan(at('🏠 Local'))
-  expect(at('Loin')).toBeGreaterThan(at('📡 Bureau'))
-  // The rule closing the Local section's last card comes before the other computer's name.
-  expect(at('separator-other')).toBeGreaterThan(at('🏠 Local'))
-  expect(at('separator-other')).toBeLessThan(at('📡 Bureau'))
-  // The last card of the group gets its rule too, before the next heading.
-  expect(at('separator-far')).toBeGreaterThan(at('Loin'))
-  await ui.unmount()
+  // No section per computer: the newer conversation of the other computer comes first.
+  expect(at('🏠 Local')).toBe(-1)
+  expect(at('Loin')).toBeGreaterThan(-1)
+  expect(at('Loin')).toBeLessThan(at('separator-far'))
+  expect(at('separator-far')).toBeLessThan(at('separator-other'))
+  // It names its computer, and the version there, marked as not this one's.
+  expect(group).toContain('📡 Bureau · ⚠️ 0.1.0 · api')
 })
 
 test('a conversation in two files of one computer is drawn once, with its latest status', SYNC, async ($, on) => {

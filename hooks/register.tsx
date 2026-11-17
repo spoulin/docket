@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.19'
+const VERSION = '0.12.20'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -123,9 +123,7 @@ const TEXTS = {
     snoozedFor: (rest: string) => `🌙 ${rest}`,
     wake: 'Wake up',
     showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 🌙 Snoozed (${count})`,
-    local: '🏠 Local',
     machine: (name: string) => `📡 ${name}`,
-    machineFacts: (version: string, age: string) => `${version} · ${age}`,
     otherVersion: (version: string) => `⚠️ ${version}`,
     snoozes: {
       '5m': '5 min',
@@ -222,9 +220,7 @@ const TEXTS = {
     snoozedFor: (rest: string) => `🌙 ${rest}`,
     wake: 'Réveiller',
     showSnoozed: (isOn: boolean, count: number) => `${isOn ? '☑' : '☐'} 🌙 En snooze (${count})`,
-    local: '🏠 Local',
     machine: (name: string) => `📡 ${name}`,
-    machineFacts: (version: string, age: string) => `${version} · ${age}`,
     otherVersion: (version: string) => `⚠️ ${version}`,
     snoozes: {
       '5m': '5 min',
@@ -843,7 +839,7 @@ export const register: Register = (on, options) => {
                 />
               )}
               <Text dimColor size="footnote" wrap="truncate-end">
-                {row.key === hereId ? `${t.here} · ${describe(row)}` : describe(row)}
+                {describeFacts(row)}
               </Text>
             </Box>
             {describeGit(row, row.machine?.git ?? git).length > 0 && (
@@ -963,45 +959,18 @@ export const register: Register = (on, options) => {
     // A thin rule closes every card, the last one before a heading included.
     const listRows = (list: readonly Row[]) =>
       list.flatMap(row => [renderRow(row), separator(`separator-${row.key}`, cardColumns)])
-    // Another computer's version, marked when it differs from this one's, and how long
-    // ago it last wrote its file: a computer left behind or gone quiet shows at once.
-    const describeMachine = (list: readonly Row[], name: string): string | undefined => {
-      const facts = list.find(row => row.machine?.name === name)?.machine
-      if (facts?.version === undefined || facts.publishedAt === undefined) {
-        return undefined
+    // Another computer's conversation names that computer, with its version when it differs
+    // from this one's: the cards of every computer sit together, newest first.
+    const describeFacts = (row: Row): string => {
+      const facts = row.machine === undefined ? [] : [t.machine(row.machine.name)]
+      if (row.machine?.version !== undefined && row.machine.version !== VERSION) {
+        facts.push(t.otherVersion(row.machine.version))
       }
-      const version = facts.version === VERSION ? facts.version : t.otherVersion(facts.version)
-
-      return t.machineFacts(version, formatAge(now - facts.publishedAt))
-    }
-    // A list holding conversations of other computers is cut in two: this computer's
-    // first, under "Local", then each other computer's under its name.
-    const listByPlace = (prefix: string, list: readonly Row[]) => {
-      const names = [...new Set(list.flatMap(row => (row.machine === undefined ? [] : [row.machine.name])))]
-      const places = [
-        ...(list.some(row => row.machine === undefined) ? [undefined] : []),
-        ...names.sort((a, b) => a.localeCompare(b)),
-      ]
-      if (places.length === 1 && places[0] === undefined) {
-        return listRows(list)
+      if (row.key === hereId) {
+        facts.push(t.here)
       }
 
-      // The rule closing each section's last card sets it apart from the next one's name.
-      return places.map(place => (
-        <Box key={`place-${prefix}-${place ?? 'local'}`} flexDirection="column" gap={1}>
-          <Box key={`place-name-${prefix}-${place ?? 'local'}`} flexDirection="row" flexWrap="wrap" alignItems="center" gap={1}>
-            <Text weight="semibold" dimColor>
-              {place === undefined ? t.local : t.machine(place)}
-            </Text>
-            {place !== undefined && describeMachine(list, place) !== undefined && (
-              <Text dimColor size="caption">
-                {describeMachine(list, place)}
-              </Text>
-            )}
-          </Box>
-          {listRows(list.filter(row => row.machine?.name === place))}
-        </Box>
-      ))
+      return [...facts, describe(row)].join(' · ')
     }
     // Each picker with its label above it, laid out in two columns, row by row.
     // The right column's pickers sit against the frame's right edge, label and all.
@@ -1152,7 +1121,7 @@ export const register: Register = (on, options) => {
             {section.empty}
           </Text>
         ) : (
-          listByPlace(section.id, section.rows)
+          listRows(section.rows)
         )}
       </Box>
     ))
