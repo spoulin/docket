@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.20',
+    title: '🏷️ Docket 0.12.21',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1491,8 +1491,9 @@ test('the board shows the conversations another computer shared', SYNC, async ($
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   // In its status group, named after its computer, with that computer's git and a spinner.
   expect(await ui.find({ type: 'Box', key: 'heading-en-attente' })).toBeTruthy()
-  // Its card names its computer, before its folder.
-  expect(await ui.find({ type: 'Text', text: '📡 Bureau · api' })).toBeTruthy()
+  // Its card names its computer above its title.
+  expect(await ui.find({ type: 'Text', text: '📡 Bureau' })).toBeTruthy()
+  expect(await ui.find({ type: 'Text', text: /^api$/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: '✎ non commité' })).toBeTruthy()
   expect(await ui.find({ type: 'Svg', alt: 'Claude travaille' } as never)).toBeTruthy()
   // It opens through Remote Control; it cannot be removed from here.
@@ -1703,8 +1704,9 @@ test('a group mixes the conversations of every computer, newest first', SYNC, as
   expect(at('Loin')).toBeGreaterThan(-1)
   expect(at('Loin')).toBeLessThan(at('separator-far'))
   expect(at('separator-far')).toBeLessThan(at('separator-other'))
-  // It names its computer, and the version there, marked as not this one's.
-  expect(group).toContain('📡 Bureau · ⚠️ 0.1.0 · api')
+  // It names its computer above its title, and the version there, marked as not this one's.
+  expect(group).toContain('📡 Bureau · ⚠️ 0.1.0')
+  expect(at('📡 Bureau')).toBeLessThan(at('Loin'))
 })
 
 test('a conversation in two files of one computer is drawn once, with its latest status', SYNC, async ($, on) => {

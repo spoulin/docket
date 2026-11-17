@@ -231,8 +231,8 @@ Set `syncFolder` to the same synced folder on each computer, for example in iClo
 ```
 
 - Each computer writes one file of its own there, `machines/<id>.json`: its conversations, their statuses, flags and notes, and its git signs. It reads the others' files and never writes them.
-- The board shows the other computers' conversations in their groups, with their spinner and git signs. They sit among this computer's, newest first, and each names its computer at the start of its second line (`📡 Office · api`).
-  When the mod's version there is not this computer's, the card shows it too, marked `⚠️` (`📡 Office · ⚠️ 0.12.8 · api`).
+- The board shows the other computers' conversations in their groups, with their spinner and git signs. They sit among this computer's, newest first, and each names its computer on a line above its title (`📡 Office`).
+  When the mod's version there is not this computer's, that line shows it too, marked `⚠️` (`📡 Office · ⚠️ 0.12.8`).
 - A click opens one in the app through Remote Control, when Remote Control is on for it; otherwise its title is plain text.
 - Opened this way, it shows neither the band nor the board, which run on its own computer; `/docket` works there and sets its status.
 - A conversation's status is set where it runs, in its band or with `/docket`.

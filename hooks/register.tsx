@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.20'
+const VERSION = '0.12.21'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -806,6 +806,11 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column" flexGrow={1} flexShrink={1}>
             <Box flexDirection="row" justifyContent="space-between" alignItems="flex-start" gap={2}>
               <Box flexDirection="column" flexShrink={1}>
+                {describeMachine(row) !== undefined && (
+                  <Text key={`machine-${row.key}`} dimColor size="caption" wrap="truncate-end">
+                    {describeMachine(row)}
+                  </Text>
+                )}
                 {row.key !== hereId && row.hostId !== undefined && row.machine === undefined ? (
                   <Markdown
                     key={`open-${row.key}`}
@@ -839,7 +844,7 @@ export const register: Register = (on, options) => {
                 />
               )}
               <Text dimColor size="footnote" wrap="truncate-end">
-                {describeFacts(row)}
+                {row.key === hereId ? `${t.here} · ${describe(row)}` : describe(row)}
               </Text>
             </Box>
             {describeGit(row, row.machine?.git ?? git).length > 0 && (
@@ -959,18 +964,18 @@ export const register: Register = (on, options) => {
     // A thin rule closes every card, the last one before a heading included.
     const listRows = (list: readonly Row[]) =>
       list.flatMap(row => [renderRow(row), separator(`separator-${row.key}`, cardColumns)])
-    // Another computer's conversation names that computer, with its version when it differs
-    // from this one's: the cards of every computer sit together, newest first.
-    const describeFacts = (row: Row): string => {
-      const facts = row.machine === undefined ? [] : [t.machine(row.machine.name)]
-      if (row.machine?.version !== undefined && row.machine.version !== VERSION) {
-        facts.push(t.otherVersion(row.machine.version))
+    // Another computer's conversation names that computer above its title, with its version
+    // when it differs from this one's: the cards of every computer sit together, newest first.
+    const describeMachine = (row: Row): string | undefined => {
+      if (row.machine === undefined) {
+        return undefined
       }
-      if (row.key === hereId) {
-        facts.push(t.here)
-      }
+      const version =
+        row.machine.version !== undefined && row.machine.version !== VERSION
+          ? [t.otherVersion(row.machine.version)]
+          : []
 
-      return [...facts, describe(row)].join(' · ')
+      return [t.machine(row.machine.name), ...version].join(' · ')
     }
     // Each picker with its label above it, laid out in two columns, row by row.
     // The right column's pickers sit against the frame's right edge, label and all.
