@@ -12,7 +12,7 @@ const PANE = {
   component: 'Pane',
   requestId: 'docket',
   props: {
-    title: '🏷️ Docket 0.12.21',
+    title: '🏷️ Docket 0.12.22',
     isFocused: false,
     bodyColumns: 60,
     placement: 'dock',
@@ -1440,6 +1440,35 @@ test('a computer writes its conversations to the sync folder', SYNC, async ($, o
   expect(writtenAt()).toBe(settled)
   await clock.advance(5 * 60_000)
   expect(writtenAt()).toBeGreaterThan(settled)
+})
+
+test('a refresh writes the sync file at most every 30 seconds, a change of status at once', SYNC, async ($, on) => {
+  const files = { 'local_here.json': desktopRecord('here', 'Ici', false, { lastActivityAt: 3_012_345 }) }
+  mockEngine(on, {}, files)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.prompt.submit({ text: 'Préparer la démo' })
+  const path = `${MACHINES}/${[...disk.keys()].find(one => one.startsWith(`${MACHINES}/`))?.slice(MACHINES.length + 1)}`
+  const shared = () => JSON.parse(disk.get(path) ?? '{}')
+  // What changes with every message is shared to the minute.
+  expect(shared().sessions[0].lastActivityAt).toBe(3_000_000)
+  const first = shared().publishedAt as number
+
+  // A note the person sets is shared at once, gap or not.
+  await clock.advance(25_000)
+  await $.command.run({ command: 'docket', args: 'note relire demain' })
+  expect(shared().entries[0]).toMatchObject({ note: 'relire demain' })
+  const noted = shared().publishedAt as number
+  expect(noted).toBeGreaterThan(first)
+
+  // The refresh 5 seconds later finds a change, and leaves the file as it is.
+  files['local_here.json'] = desktopRecord('here', 'Renommée', false, { lastActivityAt: 3_012_345 })
+  await clock.advance(5_000)
+  expect(shared().sessions[0].title).toBe('Ici')
+  expect(shared().publishedAt).toBe(noted)
+  // The next one, past the gap, writes it.
+  await clock.advance(30_000)
+  expect(shared().sessions[0].title).toBe('Renommée')
 })
 
 test('the board shows the conversations another computer shared', SYNC, async ($, on) => {

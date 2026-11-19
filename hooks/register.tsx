@@ -16,7 +16,7 @@ import type {
 const PANE = 'docket'
 // The mod's version, shown in the board's title. A mod can read neither its manifest nor
 // its own version: keep it the same as .claude-plugin/plugin.json on each release.
-const VERSION = '0.12.21'
+const VERSION = '0.12.22'
 const KEY_PREFIX = 'session:'
 const HOST_KEY_PREFIX = 'host:'
 const REFRESH_MS = 30_000
@@ -1289,7 +1289,7 @@ async function persistEntry($: EngineInterface, entry: Entry): Promise<void> {
     entry,
   ])
   // The other computers see the new status without waiting for a refresh.
-  await syncMachines($).catch(() => undefined)
+  await syncMachines($, true).catch(() => undefined)
 }
 
 async function storeEntry($: EngineInterface, entry: Entry): Promise<void> {
@@ -1303,7 +1303,7 @@ async function removeEntry($: EngineInterface, entry: Entry): Promise<void> {
   await $.store.delete(entryKey(entry))
   await $.store.delete(storeKey(entry.sessionId))
   await update($, all, list => list.filter(one => entryKey(one) !== entryKey(entry)))
-  await syncMachines($).catch(() => undefined)
+  await syncMachines($, true).catch(() => undefined)
 }
 
 // The board's filters, shared by every conversation so the board opens as it was left.
@@ -1437,7 +1437,7 @@ async function snooze($: EngineInterface, key: string | readonly string[], choic
   await $.store.set(SNOOZES_KEY, next)
   await loadSnoozes($)
   // The other computers hear of it at once, not on the next refresh.
-  await publishOwn($).catch(() => undefined)
+  await publishOwn($, true).catch(() => undefined)
 }
 
 function snoozeKey(row: Pick<Row, 'hostId' | 'key'>): string {
@@ -1753,9 +1753,12 @@ let machineId: string | undefined
 let machineName: string | undefined
 // The text this conversation last wrote, so an unchanged file is not written again,
 // but for a heartbeat now and then, which tells the other computers this one is there.
-let lastPublished: string | undefined
-let lastPublishedAt = Number.NEGATIVE_INFINITY
 const PUBLISH_HEARTBEAT_MS = 5 * 60_000
+// Every conversation runs its own copy of the mod and writes the same file: a refresh
+// writes it at most this often, so a sync service such as iCloud is not flooded.
+const PUBLISH_GAP_MS = 30_000
+// What changes with every message is shared to the minute: enough for the age and the spinner.
+const PUBLISH_ROUND_MS = 60_000
 // A parsed file per path, kept while the file's time does not change.
 const machineFiles = new Map<string, { mtimeMs: number; machine: RemoteMachine | null }>()
 
@@ -1764,11 +1767,12 @@ async function readAllSessions($: EngineInterface): Promise<DesktopSession[]> {
   return [...(await read($, desktop)), ...(await read($, remote)).flatMap(machine => machine.sessions)]
 }
 
-async function syncMachines($: EngineInterface): Promise<void> {
+// `isUrgent`: the person just changed something, the other computers hear of it at once.
+async function syncMachines($: EngineInterface, isUrgent = false): Promise<void> {
   if (config.syncFolder === undefined) {
     return
   }
-  await publishOwn($)
+  await publishOwn($, isUrgent)
   const machines = await readMachines($)
   if (JSON.stringify(await read($, remote)) !== JSON.stringify(machines)) {
     await update($, remote, () => machines)
@@ -1829,7 +1833,7 @@ async function findMachineName($: EngineInterface): Promise<string> {
   return machineName
 }
 
-async function publishOwn($: EngineInterface): Promise<void> {
+async function publishOwn($: EngineInterface, isUrgent = false): Promise<void> {
   const folder = await findSyncFolder($)
   // Before this conversation first read the records, it would publish an empty list.
   if (folder === undefined || lastRefreshAt === 0) {
@@ -1854,26 +1858,46 @@ async function publishOwn($: EngineInterface): Promise<void> {
     Object.entries(await read($, gitStates)).filter(([key]) => keys.has(key)),
   )
   const id = await findMachineId($)
+  const round = (time: number) => Math.floor(time / PUBLISH_ROUND_MS) * PUBLISH_ROUND_MS
   const machine: RemoteMachine = {
     machineId: id,
     name: await findMachineName($),
-    sessions: sessions.filter(session => hostIds.has(session.hostId) && !dashboards.has(session.hostId)),
+    sessions: sessions
+      .filter(session => hostIds.has(session.hostId) && !dashboards.has(session.hostId))
+      .map(session => ({
+        ...session,
+        lastActivityAt: round(session.lastActivityAt),
+        ...(session.writtenAt === undefined ? {} : { writtenAt: round(session.writtenAt) }),
+      })),
     entries,
     git,
     snoozes: await readStoredSnoozes($),
   }
   const text = JSON.stringify(machine)
   const now = await $.clock.now()
-  if (text === lastPublished && now - lastPublishedAt < PUBLISH_HEARTBEAT_MS) {
+  const path = `${folder}/machines/${id}.json`
+  // The file as it is, whichever conversation wrote it: the same content is not written again.
+  let written: { text: string; publishedAt: number } | undefined
+  try {
+    const { version: _version, publishedAt, ...rest } = JSON.parse((await $.fs.read(path)) ?? '') as {
+      version?: unknown
+      publishedAt?: unknown
+    }
+    if (typeof publishedAt === 'number') {
+      written = { text: JSON.stringify(rest), publishedAt }
+    }
+  } catch {
+    written = undefined
+  }
+  const age = written === undefined ? Number.POSITIVE_INFINITY : now - written.publishedAt
+  if (written?.text === text && age < PUBLISH_HEARTBEAT_MS) {
+    return
+  }
+  if (!isUrgent && age >= 0 && age < PUBLISH_GAP_MS) {
     return
   }
   // The version and the time ride along: the other computers show both by this one's name.
-  await $.fs.write(
-    `${folder}/machines/${id}.json`,
-    JSON.stringify({ ...machine, version: VERSION, publishedAt: now }),
-  )
-  lastPublished = text
-  lastPublishedAt = now
+  await $.fs.write(path, JSON.stringify({ ...machine, version: VERSION, publishedAt: now }))
 }
 
 async function readMachines($: EngineInterface): Promise<RemoteMachine[]> {
